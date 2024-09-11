@@ -278,6 +278,7 @@ def create_metadata_for_subclass(meta: ViewAndMutationMeta) -> ViewAndMutationMe
     num_intermediate_bases = None
     keep_input_mutations = meta.keep_input_mutations
     traced_tangents = None
+    traced_tangent_memory_formats = None
     subclass_inp_meta = None
     subclass_fw_graph_out_meta = None
     subclass_tangent_meta = None
@@ -288,6 +289,7 @@ def create_metadata_for_subclass(meta: ViewAndMutationMeta) -> ViewAndMutationMe
         num_intermediate_bases=num_intermediate_bases,  # type: ignore[arg-type]
         keep_input_mutations=keep_input_mutations,  # type: ignore[arg-type]
         traced_tangents=traced_tangents,  # type: ignore[arg-type]
+        traced_tangent_memory_formats=traced_tangent_memory_formats,
         subclass_inp_meta=subclass_inp_meta,  # type: ignore[arg-type]
         subclass_fw_graph_out_meta=subclass_fw_graph_out_meta,  # type: ignore[arg-type]
         subclass_tangent_meta=subclass_tangent_meta,  # type: ignore[arg-type]
@@ -345,3 +347,11 @@ def compute_inner_mutated_inp_indices_from_subclass_meta(
         for i, inp in enumerate(updated_input_info)
         if inp.mutation_type == MutationType.MUTATED_OUT_GRAPH
     ]
+
+
+def subclass_setattr(s, attr, value):
+    # setattr on Subclass could fail with AttributeError e.g. NestedTensor for _min_seqlen_tensor
+    try:
+        setattr(s, attr, value)
+    except AttributeError:
+        s.__dict__[attr] = value

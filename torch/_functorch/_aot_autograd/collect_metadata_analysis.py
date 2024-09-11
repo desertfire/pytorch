@@ -46,7 +46,7 @@ from .schemas import (
     OutputType,
     ViewAndMutationMeta,
 )
-from .subclass_utils import create_subclass_meta
+from .subclass_utils import create_subclass_meta, subclass_setattr
 from .utils import _get_autocast_states, KNOWN_TYPES, strict_zip
 
 
@@ -56,19 +56,25 @@ log = logging.getLogger(__name__)
 static_input_logger = getArtifactLogger("torch._dynamo", "cudagraph_static_inputs")
 
 
-# Note [Tangents must be contiguous]
-# We force tangents to be contiguous today.
+# Note [Tangents memory format]
+# We assume tangents memory format to be similar to corresponding output's memory_format.
 # The idea is that we are technically making a guess about the strides of our tangents,
 # while we trace out the joint.
-# Today, we force this guess to be correct by additioanlly calling contiguous()
-# on all tangents at runtime.
-# In the future, you could imagine lifting this restriction, since these contiguous()
-# calls can have noticeable perf overhead depending on the model.
-def coerce_tangent(x):
+# If runtime specfied tangents will not have the same memory format as predicted traced tangents,
+# we coerce them at runtime to traced tangents memory format.
+def coerce_tangent(x, memory_format=torch.contiguous_format):
     if not isinstance(x, Tensor):
         return x
-    out = x.detach().contiguous()
-    # Note [Tangents must be contiguous, Part 2]
+
+    out = x.detach()
+
+    is_subclass = is_traceable_wrapper_subclass(out)
+
+    out = out.contiguous(
+        memory_format=memory_format[0] if is_subclass else memory_format
+    )
+
+    # Note [Tangents memory format, Part 2]
     # In the same way that "what strides do we assigns to our tangents" is a question
     # that we can not answer (and therefore have to guess) as we trace the backward ahead-of-time,
     # The same applies to any tensor subclass metadata, when we have tangents that are subclasses.
@@ -91,16 +97,57 @@ def coerce_tangent(x):
         out, "__coerce_tangent_metadata__"
     ):
         out = out.__coerce_tangent_metadata__()  # type: ignore[attr-defined]
-    # It's possible to have a subclass that advertises as contiguous,
-    # but has noncontiguous inner tensors.
-    # Force these to be conntiguous too
+
+    # Coerce subclasses elements to memory_format too.
     if is_traceable_wrapper_subclass(out):
-        for attr in out.__tensor_flatten__()[0]:  # type: ignore[attr-defined]
+        attrs = out.__tensor_flatten__()[0]
+
+        assert isinstance(memory_format, list)
+        for i, attr in enumerate(attrs):
             elem = getattr(out, attr)
-            if not elem.is_contiguous():
-                elem_contig = elem.contiguous()
-                setattr(out, attr, elem_contig)
+            new_elem = coerce_tangent(elem, memory_format[1 + i])
+            if new_elem is not elem:
+                subclass_setattr(out, attr, new_elem)
+
     return out
+
+
+# Coercing and collecting traced tangents memory format in one recursive traversal
+# mypy: ignore-errors
+def coerce_tangent_and_suggest_memory_format(
+    x: Tensor, force_memory_format: Optional[torch.memory_format] = None
+):
+    if not isinstance(x, Tensor):
+        return x
+
+    out = x.detach()
+
+    suggest_memory_format = torch._prims_common.suggest_memory_format
+    is_subclass = is_traceable_wrapper_subclass(out)
+
+    memory_format = force_memory_format or suggest_memory_format(out)
+    out = out.contiguous(memory_format=memory_format)
+
+    # For subclass we keep memory format of outer strides at the beggining of the list
+    out_memory_format = [memory_format] if is_subclass else memory_format
+
+    if is_subclass and hasattr(out, "__coerce_tangent_metadata__"):
+        out = out.__coerce_tangent_metadata__()  # type: ignore[attr-defined]
+
+    if is_subclass:
+        attrs = out.__tensor_flatten__()[0]
+
+        for attr in attrs:
+            elem = getattr(out, attr)
+            new_elem, new_elem_memory_format = coerce_tangent_and_suggest_memory_format(
+                elem, force_memory_format
+            )
+            out_memory_format.append(new_elem_memory_format)
+
+            if new_elem is not elem:
+                subclass_setattr(out, attr, new_elem)
+
+    return out, out_memory_format
 
 
 # This is a version of functionalization that is specifically designed
@@ -669,13 +716,20 @@ from a multi-output view call"
         traced_tangents = pytree.tree_map(
             view_avoid_dupes_with_primals, traced_tangents
         )
-        # See Note [Tangents must be contiguous]
-        traced_tangents = pytree.tree_map(
-            coerce_tangent,
-            traced_tangents,
-        )
-        user_outs = pytree.tree_map(from_fun, f_output_tangents)
 
+        output_tangents_start_idx = len(f_input_tangents)
+        output_tangents_end_idx = output_tangents_start_idx + len(f_output_tangents)
+        tangents_and_memory_formats = [
+            coerce_tangent_and_suggest_memory_format(
+                tt,
+                None
+                if (output_tangents_start_idx <= i and i < output_tangents_end_idx)
+                else torch.contiguous_format,
+            )
+            for i, tt in enumerate(traced_tangents)
+        ]
+        traced_tangents = [t[0] for t in tangents_and_memory_formats]
+        traced_tangent_memory_formats = [t[1] for t in tangents_and_memory_formats]
         nonlocal static_input_indices
         static_input_indices = static_input_indices or []
         if torch._dynamo.compiled_autograd.in_compiled_autograd_region:
@@ -736,6 +790,7 @@ from a multi-output view call"
             num_intermediate_bases=len(intermediate_bases),
             keep_input_mutations=keep_input_mutations,
             traced_tangents=traced_tangents,
+            traced_tangent_memory_formats=traced_tangent_memory_formats,
             subclass_inp_meta=create_subclass_meta(flat_args),
             subclass_fw_graph_out_meta=create_subclass_meta(fw_graph_outs),
             subclass_tangent_meta=create_subclass_meta(traced_tangents),
