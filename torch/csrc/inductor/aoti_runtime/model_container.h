@@ -395,7 +395,7 @@ class AOTInductorModelContainer {
       AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_get_strides(tensor, &stride));
       AOTI_TORCH_ERROR_CODE_CHECK(
           aoti_torch_get_storage_offset(tensor, &offset));
-      AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_create_tensor_from_blob(
+      AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_create_tensor_from_blob_v2(
           internal_constants_ptr,
           models_[0]->constant_ndim(idx),
           models_[0]->constant_shape(idx),
@@ -404,7 +404,10 @@ class AOTInductorModelContainer {
           models_[0]->constant_dtype(idx),
           device_type,
           device_idx,
-          &tensor_handle));
+          &tensor_handle,
+          models_[0]->constant_layout(idx),
+          models_[0]->opaque_metadata(idx),
+          models_[0]->opaque_metadata_size(idx)));
 
       // Now place the tensor to constants_map. Note at this point the ownership
       // of the tensor_handle will be taken over.

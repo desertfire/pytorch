@@ -1308,6 +1308,7 @@ def main():
         "include/torch/csrc/dynamo/*.h",
         "include/torch/csrc/inductor/*.h",
         "include/torch/csrc/inductor/aoti_include/*.h",
+        "include/torch/csrc/inductor/aoti_libtorch_free/*.h",
         "include/torch/csrc/inductor/aoti_package/*.h",
         "include/torch/csrc/inductor/aoti_runner/*.h",
         "include/torch/csrc/inductor/aoti_runtime/*.h",

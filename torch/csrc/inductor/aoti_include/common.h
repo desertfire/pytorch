@@ -9,8 +9,11 @@
 
 #include <c10/util/generic_math.h>
 #include <torch/csrc/inductor/aoti_runtime/scalar_to_tensor.h>
+
+#ifndef AOTI_LIBTORCH_FREE
 using half = at::Half;
 using bfloat16 = at::BFloat16;
+#endif // AOTI_LIBTORCH_FREE
 
 // Round up to the nearest multiple of 64
 [[maybe_unused]] inline int64_t align(int64_t nbytes) {
