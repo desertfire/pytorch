@@ -172,7 +172,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
         # present.
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
-            f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
+            f"torch/csrc/inductor/aoti_standalone/{self.device}/c_shim_{self.device}.h"
+            if config.aot_inductor.codegen_standalone
+            else f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
         extend_aoti_c_shim_path = os.path.join(
             os.path.dirname(torch.__file__),
@@ -181,6 +183,11 @@ class CppWrapperCpu(PythonWrapperCodegen):
         )
         if os.path.exists(extend_aoti_c_shim_path):
             self.header.splice(f"#include <{extend_aoti_c_shim_include}>")
+
+        if self.device == "cuda":
+            self.header.splice(
+                f"#include <torch/csrc/inductor/aoti_standalone/{self.device}/_weight_int4pack_mm.h>"
+            )
 
     def write_header(self):
         if V.graph.is_const_graph:
@@ -205,6 +212,24 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 os.path.join(os.path.dirname(__file__), "aoti_runtime", "interface.cpp")
             ) as f:
                 self.header.splice(f.read())
+            if config.aot_inductor.codegen_standalone:
+                csrc_root = os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "..",
+                    "csrc",
+                    "inductor",
+                    "aoti_standalone",
+                    "cuda",
+                )
+                for file in [
+                    os.path.join(
+                        csrc_root,
+                        "c_shim_cuda.cpp",
+                    ),
+                ]:
+                    with open(file) as f:
+                        self.header.splice(f.read())
             self.header.splice("\n")
 
         enable_kernel_profile = config.cpp.enable_kernel_profile and sys.platform in [
@@ -666,7 +691,15 @@ class CppWrapperCpu(PythonWrapperCodegen):
             signature = kernel.get_signature().replace(name, kernel_ptr)
             self.prefix.writeline(f"    {signature} = torch::aot_inductor::{name};")
         self.prefix.writeline("};")
-        self.prefix.writeline("}  // namespace")
+        self.prefix.writeline("}  // namespace\n\n")
+
+        if config.aot_inductor.embed_cubin:
+            self.prefix.writeline('extern "C" {')
+            for name in sorted(declare_kernel):
+                self.prefix.writeline(
+                    f"    extern const unsigned char __{name}_start[];"
+                )
+            self.prefix.writeline("}")
 
     def codegen_model_constructor(self):
         """
@@ -934,6 +967,8 @@ class CppWrapperCpu(PythonWrapperCodegen):
             self.codegen_const_run_driver()
             aot_mode_decls.writeline("} // namespace torch::aot_inductor")
             aot_mode_decls.writeline("using namespace torch::aot_inductor;")
+            if config.aot_inductor.codegen_standalone:
+                aot_mode_decls.writeline("using namespace torch::native::standalone;")
 
         self.prefix = cache_decls = IndentedBuffer()
         for dtype in self.used_cached_dtypes:

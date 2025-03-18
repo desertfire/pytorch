@@ -237,6 +237,7 @@ def check_model(
             options,
             dynamic_shapes,
         )
+        print(actual - expected)
 
     self.assertEqual(actual, expected, atol=atol, rtol=rtol)
 

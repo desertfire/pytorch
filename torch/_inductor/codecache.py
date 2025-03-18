@@ -1532,6 +1532,10 @@ class CudaKernelParamCache:
 
 
 class AotCodeCompiler:
+    """
+    Compile files for AOTInductor
+    """
+
     @classmethod
     def compile(
         cls,
@@ -1744,6 +1748,9 @@ class AotCodeCompiler:
 
             metadata = config.aot_inductor.metadata
             metadata["AOTI_DEVICE_KEY"] = device_type
+            metadata["STANDALONE"] = (
+                "1" if config.aot_inductor.codegen_standalone else "0"
+            )
 
             # Save user provided metadata
             meta_json = str(
@@ -1878,6 +1885,35 @@ class AotCodeCompiler:
 
             log.debug("aot wrapper compilation command: %s", wrapper_compile_cmd)
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
+
+            cuda_utils_o = []
+            if config.aot_inductor.codegen_standalone and device_type == "cuda":
+                cuda_util_files = [
+                    str(
+                        Path(__file__).parent.parent
+                        / "csrc"
+                        / "inductor"
+                        / "aoti_standalone"
+                        / "cuda"
+                        / "_weight_int4pack_mm.cu"
+                    )
+                ]
+                cuda_build_options = CppTorchDeviceOptions(
+                    compiler="nvcc",
+                    compile_only=True,
+                    **compile_command,
+                )
+                for file in cuda_util_files:
+                    cuda_builder = CppBuilder(
+                        name=file,
+                        sources=file,
+                        output_dir=str(wrapper_path_operator.parent),
+                        BuildOption=cuda_build_options,
+                    )
+                    if not config.aot_inductor.package_cpp_only:
+                        cuda_builder.build()
+                        cuda_utils_o.append(cuda_builder.get_target_file_path())
+
             if config.aot_inductor.package_cpp_only:
                 # Not doing the actual compilation here
                 compile_flags = str(
@@ -1955,7 +1991,39 @@ class AotCodeCompiler:
                 for entry in gpu_codecache.cache.values()
                 if entry.output_path.endswith(".o")
             ]
-            gpu_kernels_o = " ".join(gpu_kernels_o)
+
+            cubins_o = []
+            if config.aot_inductor.embed_cubin:
+                # Embed cubin files into .so using objcopy
+                if config.is_fbcode():
+                    ld = build_paths.ld()
+                    objcopy = (
+                        build_paths.objcopy_fallback()
+                        if use_relative_path
+                        else build_paths.objcopy()
+                    )
+                else:
+                    ld = "ld"
+                    objcopy = "objcopy"
+
+                for kernel_name, value in CudaKernelParamCache.cache.items():
+                    cubin_file = value[get_cpp_wrapper_cubin_path_name()]
+                    obj_file = cubin_file + ".o"
+                    cubins_o.append(obj_file)
+                    # Convert .cubin to .o
+                    cmd = f"{ld} -r -b binary -o {obj_file} {cubin_file}"
+                    subprocess.run(cmd.split(), capture_output=True, text=True)
+                    # By default objcopy will create *_start, *_size, *_end symbols using the full path
+                    # Rename to use the unique kernel name
+                    file_name = re.sub(r"[\W]", "_", cubin_file)
+                    cmd = (
+                        f"{objcopy} "
+                        + f"--redefine-sym _binary_{file_name}_start=__{kernel_name}_start "
+                        + f"--redefine-sym _binary_{file_name}_size=__{kernel_name}_size "
+                        + f"--redefine-sym _binary_{file_name}_end=__{kernel_name}_end "
+                        + obj_file
+                    )
+                    subprocess.run(cmd.split(), capture_output=True, text=True)
 
             output_name, output_dir = get_name_and_dir_from_output_file_path(output_so)
             so_build_options = CppTorchDeviceOptions(
@@ -1965,11 +2033,17 @@ class AotCodeCompiler:
                 use_relative_path=use_relative_path,
             )
 
+            obj_srcs = [
+                wrapper_o,
+                kernel_o,
+                consts_o,
+                *gpu_kernels_o,
+                *cubins_o,
+                *cuda_utils_o,
+            ]
             so_builder = CppBuilder(
                 name=output_name,
-                sources=[wrapper_o, kernel_o, consts_o, gpu_kernels_o]
-                if gpu_kernels_o
-                else [wrapper_o, kernel_o, consts_o],
+                sources=obj_srcs,
                 output_dir=output_dir,
                 BuildOption=so_build_options,
             )
@@ -2014,17 +2088,14 @@ class AotCodeCompiler:
 
                     generated_files.append(weight_file)
 
-                generated_files.append(consts_o)
-                generated_files.append(gpu_kernels_o)
-
-                so_builder.save_src_to_cmake(cmake_path, consts_o)
-                for gpu_o in gpu_kernels_o.split():
-                    so_builder.save_src_to_cmake(cmake_path, gpu_o)
+                obj_srcs = [consts_o, *gpu_kernels_o, *cubins_o]
+                generated_files.extend(obj_srcs)
+                for obj in obj_srcs:
+                    so_builder.save_src_to_cmake(cmake_path, obj)
                 so_builder.save_link_cmd_to_cmake(cmake_path)
             else:
                 so_builder.build()
-
-                for o_file in [wrapper_o, kernel_o, consts_o]:
+                for o_file in obj_srcs:
                     # Remove these as they are not needed anymore
                     os.remove(o_file)
 
@@ -2064,7 +2135,7 @@ class AotCodeCompiler:
 @clear_on_fresh_inductor_cache
 @functools.lru_cache
 def cpp_prefix_path() -> str:
-    path = Path(__file__).parent / "codegen/cpp_prefix.h"
+    path = Path(__file__).parent / "codegen" / "cpp_prefix.h"
     with path.open() as f:
         content = f.read()
         _, filename = write(
@@ -2539,7 +2610,11 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     call_entry_function = "return inductor_entry_cpp({});"
     extra_parse_arg = textwrap.dedent(
         """
+        #ifdef AOTI_STANDALONE
+        #include <torch/csrc/inductor/aoti_standalone/c/shim.h>
+        #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
+        #endif // AOTI_STANDALONE
 
         static inline std::vector<AtenTensorHandle> unpack_tensor_handle_list(PyObject* pyvec) {{
             std::vector<AtenTensorHandle> result;
@@ -3183,7 +3258,7 @@ def _nvcc_host_compiler_options() -> list[str]:
     ]
 
 
-def _nvcc_compiler_options() -> list[str]:
+def _nvcc_get_arch_option() -> str:
     arch = cuda_env.get_cuda_arch()
     if arch == "90":
         # Required by cutlass compilation.
@@ -3193,13 +3268,17 @@ def _nvcc_compiler_options() -> list[str]:
     code = [f"sm_{arch}", f"compute_{arch}"]
     if config.cuda.enable_cuda_lto:
         code += [f"lto_{arch}"]
+    return f"gencode=arch=compute_{arch},code=[{','.join(code)}]"
+
+
+def _nvcc_compiler_options() -> list[str]:
     options = [
         "-t=0",
         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
         "-DCUTLASS_ENABLE_SM90_EXTENDED_MMA_SHAPES=1",
         "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
         "-w",
-        f"-gencode=arch=compute_{arch},code=[{','.join(code)}]",
+        f"-{_nvcc_get_arch_option()}",
         config.cuda.compile_opt_level,
         "-std=c++17",
         "--expt-relaxed-constexpr",

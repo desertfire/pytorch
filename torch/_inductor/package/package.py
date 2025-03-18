@@ -239,7 +239,10 @@ class AOTICompiledModel:
     Callable AOT Inductor loaded model from a .pt2
     """
 
-    def __init__(self, loader: torch._C._aoti.AOTIModelPackageLoader) -> None:
+    def __init__(
+        self,
+        loader: torch._C._aoti.AOTIModelPackageLoader,
+    ) -> None:
         self.loader = loader
 
     def __call__(self, *args, **kwargs):  # type: ignore[no-untyped-def]

@@ -2,6 +2,9 @@
 
 #include <torch/csrc/inductor/aoti_runtime/interface.h>
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
+#ifdef AOTI_STANDALONE
+#include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
+#endif
 
 #include <iostream>
 #include <vector>
