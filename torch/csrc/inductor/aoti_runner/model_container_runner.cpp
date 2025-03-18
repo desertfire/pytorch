@@ -1,25 +1,17 @@
 #if !defined(C10_MOBILE) && !defined(ANDROID)
 #include <ATen/DynamicLibrary.h>
 
+#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
 #include <torch/csrc/inductor/aoti_torch/oss_proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/tensor_converter.h>
 
-#ifndef _WIN32
-#include <sys/stat.h>
-#else
 #include <filesystem>
 namespace fs = std::filesystem;
-#endif
 
 namespace {
 bool file_exists(std::string& path) {
-#ifdef _WIN32
   return fs::exists(path);
-#else
-  struct stat rc {};
-  return lstat(path.c_str(), &rc) == 0;
-#endif
 }
 } // namespace
 
