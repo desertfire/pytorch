@@ -468,6 +468,9 @@ lazy_tensor_core_python_sources = [
 ]
 
 inductor_core_resources = [
+    "torch/csrc/inductor/aoti_libtorch_free/package_loader.cpp",
+    "torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.cpp",
+    "torch/csrc/inductor/aoti_package/libtorch_free_package_loader.cpp",
     "torch/csrc/inductor/aoti_package/model_package_loader.cpp",
     "torch/csrc/inductor/aoti_runner/model_container_runner.cpp",
     "torch/csrc/inductor/aoti_runner/model_container_runner_cpu.cpp",

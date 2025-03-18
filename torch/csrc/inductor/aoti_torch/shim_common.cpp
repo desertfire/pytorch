@@ -120,17 +120,17 @@ static c10::Device c10_device(int32_t device_type, int32_t device_index) {
 
 const int AOTI_TORCH_MAX_NUMEL_TO_PRINT = 64;
 
-#define AOTI_TORCH_DEVICE_TYPE_IMPL(device_str, device_type) \
-  int32_t aoti_torch_device_type_##device_str() {            \
-    return (int32_t)c10::DeviceType::device_type;            \
+#define AOTI_DEVICE_TYPE_IMPL(device_str, device_type) \
+  int32_t aoti_torch_device_type_##device_str() {      \
+    return (int32_t)c10::DeviceType::device_type;      \
   }
 
-AOTI_TORCH_DEVICE_TYPE_IMPL(cpu, CPU)
-AOTI_TORCH_DEVICE_TYPE_IMPL(cuda, CUDA)
-AOTI_TORCH_DEVICE_TYPE_IMPL(meta, Meta)
-AOTI_TORCH_DEVICE_TYPE_IMPL(xpu, XPU)
-AOTI_TORCH_DEVICE_TYPE_IMPL(privateuse1, PrivateUse1)
-#undef AOTI_TORCH_DEVICE_TYPE_IMPL
+AOTI_DEVICE_TYPE_IMPL(cpu, CPU)
+AOTI_DEVICE_TYPE_IMPL(cuda, CUDA)
+AOTI_DEVICE_TYPE_IMPL(meta, Meta)
+AOTI_DEVICE_TYPE_IMPL(xpu, XPU)
+AOTI_DEVICE_TYPE_IMPL(privateuse1, PrivateUse1)
+#undef AOTI_DEVICE_TYPE_IMPL
 
 #define AOTI_TORCH_DTYPE_IMPL(dtype, stype) \
   int32_t aoti_torch_dtype_##dtype() {      \
@@ -1181,11 +1181,11 @@ void aoti_torch_print_tensor_handle(AtenTensorHandle self, const char* msg) {
   // Print dtypes and for float types, print exact precision
   auto scalarType = t->scalar_type();
   if (scalarType == at::ScalarType::Float) {
-    std::cout << "Dtype: float32" << std::endl;
+    std::cout << "Dtype: float32\n";
   } else if (scalarType == at::ScalarType::Half) {
-    std::cout << "Dtype: float16" << std::endl;
+    std::cout << "Dtype: float16\n";
   } else if (scalarType == at::ScalarType::BFloat16) {
-    std::cout << "Dtype: bfloat16" << std::endl;
+    std::cout << "Dtype: bfloat16\n";
   } else {
     std::cout << "Dtype: " << t->dtype() << '\n';
   }
@@ -1304,6 +1304,7 @@ static StableIValue from_ivalue(
   switch (type->kind()) {
     case c10::TypeKind::TensorType: {
       AtenTensorHandle ath = torch::aot_inductor::new_tensor_handle(
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           std::move(const_cast<at::Tensor&>(ivalue.toTensor())));
       return from(ath);
     }

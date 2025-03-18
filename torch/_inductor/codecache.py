@@ -2501,7 +2501,11 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     call_entry_function = "return inductor_entry_cpp({});"
     extra_parse_arg = textwrap.dedent(
         """
+        #ifdef AOTI_LIBTORCH_FREE
+        #include <torch/csrc/inductor/aoti_libtorch_free/c_shim.h>
+        #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
+        #endif // AOTI_LIBTORCH_FREE
 
         static inline std::vector<AtenTensorHandle> unpack_tensor_handle_list(PyObject* pyvec) {{
             std::vector<AtenTensorHandle> result;

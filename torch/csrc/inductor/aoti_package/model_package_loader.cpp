@@ -10,7 +10,6 @@
 #include <miniz.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
-#include <iostream>
 
 #ifndef _WIN32
 #include <dirent.h>
@@ -66,21 +65,7 @@ const std::string k_separator = "/";
 } // namespace
 
 namespace torch::inductor {
-
 namespace {
-const nlohmann::json& load_json_file(std::string json_path) {
-  if (!file_exists(json_path)) {
-    throw std::runtime_error("File not found: " + json_path);
-  }
-
-  std::ifstream json_file(json_path);
-  TORCH_CHECK(json_file.is_open());
-  static nlohmann::json json_obj;
-  json_file >> json_obj;
-
-  return json_obj;
-}
-
 std::tuple<std::string, std::string> get_cpp_compile_command(
     const std::string& filename,
     const std::vector<std::string>& sources,
@@ -100,7 +85,8 @@ std::tuple<std::string, std::string> get_cpp_compile_command(
   std::string target_file = output_dir + filename + file_ext;
   std::string target_dir = output_dir;
   if (target_dir.empty()) {
-    size_t parent_path_idx = filename.find_last_of(k_separator);
+    size_t parent_path_idx =
+        filename.find_last_of(aoti::libtorch_free::k_separator);
     target_dir = filename.substr(0, parent_path_idx);
   }
 
@@ -139,7 +125,7 @@ std::tuple<std::string, std::string> get_cpp_compile_command(
     std::string arg_str = arg.get<std::string>();
     std::string target = "script.ld";
     std::string replacement = target_dir;
-    replacement.append(k_separator).append(target);
+    replacement.append(aoti::libtorch_free::k_separator).append(target);
     size_t pos = arg_str.find(target);
     if (pos != std::string::npos) {
       arg_str.replace(pos, target.length(), replacement);
@@ -263,25 +249,27 @@ bool recursive_rmdir(const std::string& path) {
 }
 
 std::string compile_so(
-    const std::string& cpp_filename,
-    const std::string& consts_filename) {
+    const std::string& cpp_path,
+    const std::string& consts_path) {
   // Compile the cpp file into a .so
 
-  size_t lastindex = cpp_filename.find_last_of('.');
-  std::string filename = cpp_filename.substr(0, lastindex);
+  size_t lastindex = cpp_path.find_last_of('.');
+  std::string filename = cpp_path.substr(0, lastindex);
 
   std::string compile_flags_path = filename + "_compile_flags.json";
-  const nlohmann::json compile_flags = load_json_file(compile_flags_path);
+  const nlohmann::json compile_flags =
+      aoti::libtorch_free::load_json_file(compile_flags_path);
 
   auto [compile_cmd, output_o] =
-      get_cpp_compile_command(filename, {cpp_filename}, compile_flags);
+      get_cpp_compile_command(filename, {cpp_path}, compile_flags);
 
   std::string linker_flags_path =
-      cpp_filename.substr(0, lastindex) + "_linker_flags.json";
-  const nlohmann::json linker_flags = load_json_file(linker_flags_path);
+      cpp_path.substr(0, lastindex) + "_linker_flags.json";
+  const nlohmann::json linker_flags =
+      aoti::libtorch_free::load_json_file(linker_flags_path);
 
-  auto [link_cmd, output_so] = get_cpp_compile_command(
-      filename, {output_o, consts_filename}, linker_flags);
+  auto [link_cmd, output_so] =
+      get_cpp_compile_command(filename, {output_o, consts_path}, linker_flags);
 
   // Run the commands to generate a .so file
   int status = system(compile_cmd.c_str());
@@ -295,7 +283,7 @@ std::string compile_so(
 
   // Move the mmapped weights onto the .so
   std::string serialized_weights_path = filename + "_serialized_weights.bin";
-  if (file_exists(serialized_weights_path)) {
+  if (aoti::libtorch_free::file_exists(serialized_weights_path)) {
     std::ifstream serialized_weights_file(
         serialized_weights_path, std::ios::binary);
     if (!serialized_weights_file.is_open()) {
@@ -324,19 +312,6 @@ std::string compile_so(
   return output_so;
 }
 } // namespace
-
-void AOTIModelPackageLoader::load_metadata(const std::string& cpp_filename) {
-  // Parse metadata json file (if it exists) into the metadata_ map
-  size_t lastindex = cpp_filename.find_last_of('.');
-  std::string metadata_json_path =
-      cpp_filename.substr(0, lastindex) + "_metadata.json";
-
-  const nlohmann::json metadata_json_obj = load_json_file(metadata_json_path);
-
-  for (auto& item : metadata_json_obj.items()) {
-    metadata_[item.key()] = item.value().get<std::string>();
-  }
-}
 
 AOTIModelPackageLoader::AOTIModelPackageLoader(
     const std::string& model_package_path,
@@ -462,28 +437,28 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
   }
 
   // Compile the .so
-  std::string so_path = !so_filename.empty()
-      ? so_filename
-      : compile_so(cpp_filename, consts_filename);
+  if (so_path.empty()) {
+    so_path = compile_so(cpp_path, consts_path);
+  }
 
   // Load metadata which can be queried by user
-  load_metadata(cpp_filename);
+  size_t lastindex = cpp_path.find_last_of('.');
+  std::string metadata_json_path =
+      cpp_path.substr(0, lastindex) + "_metadata.json";
+  metadata_ = aoti::libtorch_free::load_metadata(metadata_json_path);
 
   // Construct the runner depending on the device information
   std::string device = metadata_["AOTI_DEVICE_KEY"];
-
   if (device.empty()) {
     throw std::runtime_error("No device information found.");
   }
 
   std::unordered_map<std::string, CreateAOTIModelRunnerFunc>
       registered_aoti_runner = getAOTIModelRunnerRegistry();
-
   if (registered_aoti_runner.find(device) == registered_aoti_runner.end()) {
     throw std::runtime_error("Unsupported device found: " + device);
   }
 
-  std::string cubin_dir = temp_dir_ + k_separator + model_directory;
   runner_ = registered_aoti_runner[device](
       so_path, num_runners, device, cubin_dir, run_single_threaded);
 }
@@ -491,7 +466,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
 AOTIModelPackageLoader::~AOTIModelPackageLoader() {
   // Clean up the temporary directory
   if (!temp_dir_.empty()) {
-    recursive_rmdir(temp_dir_);
+    aoti::libtorch_free::recursive_rmdir(temp_dir_);
   }
 }
 

@@ -1,10 +1,15 @@
 #pragma once
 
-#ifdef USE_CUDA
 // WARNING: Be careful when adding new includes here. This header will be used
 // in model.so, and should not refer to any aten/c10 headers except the stable
 // C ABI defined in torch/csrc/inductor/aoti_torch/c/shim.h. The same rule
 // applies to other files under torch/csrc/inductor/aoti_runtime/.
+
+#ifdef USE_CUDA
+#ifdef AOTI_LIBTORCH_FREE
+#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+
+#else // AOTI_LIBTORCH_FREE
 #include <torch/csrc/inductor/aoti_runtime/utils.h>
 
 #include <cuda.h>
@@ -55,4 +60,5 @@ class AOTICudaStreamGuard {
 };
 
 } // namespace torch::aot_inductor
+#endif // AOTI_LIBTORCH_FREE
 #endif // USE_CUDA
