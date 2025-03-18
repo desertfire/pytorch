@@ -597,6 +597,15 @@ class AOTInductorModelBase {
     if (self_mmap) {
       return self_mmap;
     }
+#ifdef SPEPERATE_WEIGHTS
+    int fd = open("serialized_weights.bin", O_RDONLY);
+    AOTI_RUNTIME_CHECK(fd >= 0, "serialized_weights.bin cannot be opened");
+    auto weights_size =
+        reinterpret_cast<const uint64_t*>(_binary_constants_bin_start)[0];
+    auto magic_number =
+        reinterpret_cast<const uint64_t*>(_binary_constants_bin_start)[1];
+    auto weights_offset = 0;
+#else
     Dl_info dl_info;
     // get pointer to constant which are appended to the binary
     AOTI_RUNTIME_CHECK(
@@ -609,6 +618,8 @@ class AOTInductorModelBase {
     auto magic_number =
         reinterpret_cast<const uint64_t*>(_binary_constants_bin_start)[1];
     auto weights_offset = fsize - weights_size;
+#endif
+
     AOTI_RUNTIME_CHECK(
         (weights_offset & 0x3fff) == 0,
         "weights_offset must be aligned to 16K boundary");

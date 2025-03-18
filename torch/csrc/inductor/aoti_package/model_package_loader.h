@@ -47,6 +47,5 @@ class TORCH_API AOTIModelPackageLoader {
 
   void load_metadata(const std::string& cpp_filename);
 };
-
 } // namespace torch::inductor
 #endif
