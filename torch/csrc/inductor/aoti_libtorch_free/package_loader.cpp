@@ -65,6 +65,7 @@ AOTLibtorchFreeRunner::AOTLibtorchFreeRunner(
 {
   if (model_so_ == nullptr) {
     const char* error = dlerror();
+    // NOLINTNEXTLINE(performance-avoid-endl)
     std::cerr << "Failed to load shared library: " << error << std::endl;
   }
 
