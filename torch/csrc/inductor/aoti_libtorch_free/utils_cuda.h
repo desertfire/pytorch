@@ -1,8 +1,12 @@
 #pragma once
 #ifdef USE_CUDA
 
+#include <cuda_bf16.h>
 #include <cuda_runtime.h>
+
 #include <cstdint>
+#include <iostream>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace aoti::libtorch_free {
@@ -97,17 +101,17 @@ class AOTICudaStream {
  public:
   AOTICudaStream(int32_t device_index = 0)
       : device_index_(device_index), stream_(nullptr) {
-    cudaError_t err = cudaSetDevice(device_index);
-    if (err != cudaSuccess) {
-      std::cerr << "Failed to set CUDA device: " << cudaGetErrorString(err)
-                << std::endl;
-    } else {
-      cudaStreamCreate(&stream_);
+    cudaError_t err = cudaSetDevice(device_index_);
+    if (err == cudaSuccess) {
+      err = cudaStreamCreate(&stream_);
       if (err != cudaSuccess) {
-        std::cerr << "Failed to create CUDA stream: " << cudaGetErrorString(err)
-                  << std::endl;
+        throw std::runtime_error(
+            "cudaStreamCreate failed: " + std::string(cudaGetErrorString(err)));
         stream_ = nullptr;
       }
+    } else {
+      throw std::runtime_error(
+          "cudaSetDevice failed: " + std::string(cudaGetErrorString(err)));
     }
   }
 
@@ -152,5 +156,7 @@ class AOTICudaStream {
   int32_t device_index_;
   cudaStream_t stream_;
 };
+
+void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel);
 } // namespace aoti::libtorch_free
 #endif // USE_CUDA

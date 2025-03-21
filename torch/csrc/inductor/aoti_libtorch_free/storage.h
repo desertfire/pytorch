@@ -114,16 +114,21 @@ class StorageBase {
       size_t nbytes,
       int64_t storage_offset) {
 #ifdef USE_CUDA
-    DeviceType source_device_type = other->device_type_;
-    DeviceIndex source_device_index = other->device_index_;
-    DeviceType target_device_type = device_type_;
-    DeviceIndex target_device_index = device_index_;
+    DeviceType src_device_type = other->device_type_;
+    DeviceIndex src_device_index = other->device_index_;
+    DeviceType dst_device_type = device_type_;
+    DeviceIndex dst_device_index = device_index_;
 
     cudaMemcpyKind direction = cudaMemcpyDeviceToDevice;
-    if (source_device_type == DeviceType::cpu) {
+    if (src_device_type == DeviceType::cpu) {
       direction = cudaMemcpyHostToDevice;
-    } else if (target_device_type == DeviceType::cpu) {
+    } else if (dst_device_type == DeviceType::cpu) {
       direction = cudaMemcpyDeviceToHost;
+    } else {
+      if (src_device_index != dst_device_index) {
+        throw std::runtime_error(
+            "cuda_clone failed: src_device_index != dst_device_index");
+      }
     }
 
     cudaError_t err = cudaMemcpy(
