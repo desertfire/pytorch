@@ -95,12 +95,19 @@ class AOTICudaStreamGuard {
 
 class AOTICudaStream {
  public:
-  AOTICudaStream() : stream_(nullptr) {
-    cudaError_t err = cudaStreamCreate(&stream_);
+  AOTICudaStream(int32_t device_index = 0)
+      : device_index_(device_index), stream_(nullptr) {
+    cudaError_t err = cudaSetDevice(device_index);
     if (err != cudaSuccess) {
-      std::cerr << "Failed to create CUDA stream: " << cudaGetErrorString(err)
+      std::cerr << "Failed to set CUDA device: " << cudaGetErrorString(err)
                 << std::endl;
-      stream_ = nullptr;
+    } else {
+      cudaStreamCreate(&stream_);
+      if (err != cudaSuccess) {
+        std::cerr << "Failed to create CUDA stream: " << cudaGetErrorString(err)
+                  << std::endl;
+        stream_ = nullptr;
+      }
     }
   }
 
@@ -142,6 +149,7 @@ class AOTICudaStream {
     }
   }
 
+  int32_t device_index_;
   cudaStream_t stream_;
 };
 } // namespace aoti::libtorch_free
