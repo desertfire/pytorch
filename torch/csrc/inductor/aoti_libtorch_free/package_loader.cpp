@@ -118,9 +118,10 @@ std::vector<aoti::libtorch_free::SlimTensor> AOTLibtorchFreeRunner::run(
   std::vector<AtenTensorHandle> output_handles(num_outputs);
 
 #ifdef USE_CUDA
+  std::unique_ptr<AOTICudaStream> cuda_stream;
   if (stream_handle == nullptr) {
-    AOTICudaStream cuda_stream;
-    stream_handle = reinterpret_cast<void*>(cuda_stream.get());
+    cuda_stream = std::make_unique<AOTICudaStream>();
+    stream_handle = reinterpret_cast<void*>(cuda_stream->get());
   }
 #endif
 
