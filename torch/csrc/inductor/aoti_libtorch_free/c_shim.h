@@ -4,7 +4,6 @@
 //
 #include <torch/csrc/inductor/aoti_libtorch_free/device_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/layout.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/scalar_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/slim_tensor.h>
 
@@ -26,19 +25,40 @@ inline void aoti_torch_grad_mode_set_enabled(bool enabled) {
   // do nothing
 }
 
-inline int32_t aoti_torch_delete_tensor_object(AtenTensorHandle tensor) {
+inline AOTITorchError aoti_torch_delete_tensor_object(AtenTensorHandle tensor) {
   delete tensor;
   return AOTI_TORCH_SUCCESS;
 }
 
-inline int32_t aoti_torch_get_data_ptr(
+inline AOTITorchError aoti_torch_get_data_ptr(
     AtenTensorHandle tensor,
     void** ret_data_ptr) {
   *ret_data_ptr = tensor->data_ptr();
   return AOTI_TORCH_SUCCESS;
 }
 
-inline int32_t aoti_torch_get_sizes(
+inline AOTITorchError aoti_torch_get_dtype(
+    AtenTensorHandle tensor,
+    int32_t* ret_dtype) {
+  *ret_dtype = static_cast<int32_t>(tensor->dtype());
+  return AOTI_TORCH_SUCCESS;
+}
+
+inline AOTITorchError aoti_torch_get_device_type(
+    AtenTensorHandle tensor,
+    int32_t* ret_device_type) {
+  *ret_device_type = static_cast<int32_t>(tensor->device_type());
+  return AOTI_TORCH_SUCCESS;
+}
+
+inline AOTITorchError aoti_torch_get_device_index(
+    AtenTensorHandle tensor,
+    int32_t* ret_device_index) {
+  *ret_device_index = static_cast<int32_t>(tensor->device_index());
+  return AOTI_TORCH_SUCCESS;
+}
+
+inline AOTITorchError aoti_torch_get_sizes(
     AtenTensorHandle tensor,
     int64_t** ret_sizes) {
   *ret_sizes = (int64_t*)tensor->sizes().data();
@@ -53,7 +73,7 @@ inline AOTITorchError aoti_torch_get_size(
   return AOTI_TORCH_SUCCESS;
 }
 
-inline int32_t aoti_torch_get_strides(
+inline AOTITorchError aoti_torch_get_strides(
     AtenTensorHandle tensor,
     int64_t** ret_strides) {
   *ret_strides = (int64_t*)tensor->strides().data();
@@ -75,24 +95,10 @@ inline AOTITorchError aoti_torch_get_storage_size(
   return AOTI_TORCH_SUCCESS;
 }
 
-inline int32_t aoti_torch_get_storage_offset(
+inline AOTITorchError aoti_torch_get_storage_offset(
     AtenTensorHandle tensor,
     int64_t* ret_storage_offset) {
   *ret_storage_offset = tensor->storage_offset();
-  return AOTI_TORCH_SUCCESS;
-}
-
-inline int32_t aoti_torch_get_device_type(
-    AtenTensorHandle tensor,
-    int32_t* ret_device_type) {
-  *ret_device_type = static_cast<int32_t>(tensor->device_type());
-  return AOTI_TORCH_SUCCESS;
-}
-
-inline int32_t aoti_torch_get_device_index(
-    AtenTensorHandle tensor,
-    int32_t* ret_device_index) {
-  *ret_device_index = static_cast<int32_t>(tensor->device_index());
   return AOTI_TORCH_SUCCESS;
 }
 

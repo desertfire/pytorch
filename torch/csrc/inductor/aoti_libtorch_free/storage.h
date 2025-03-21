@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 
@@ -9,7 +10,6 @@
 
 #include <torch/csrc/inductor/aoti_libtorch_free/device_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/non_atomic_shared_ptr.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
 
 namespace aoti::libtorch_free {
 

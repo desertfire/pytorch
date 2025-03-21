@@ -63,6 +63,11 @@ AOTLibtorchFreeRunner::AOTLibtorchFreeRunner(
               RTLD_DEEPBIND)) // RTLD_DEEPBIND is required to prioritize C shim
                               // symbols defined in model.so over libtorch.so
 {
+  if (model_so_ == nullptr) {
+    const char* error = dlerror();
+    std::cerr << "Failed to load shared library: " << error << std::endl;
+  }
+
 #define LOAD_SYMBOL(var, name_str)                                        \
   var = reinterpret_cast<decltype(var)>(dlsym(model_so_, name_str));      \
   if (!var) {                                                             \
