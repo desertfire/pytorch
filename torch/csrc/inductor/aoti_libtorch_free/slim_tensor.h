@@ -1,11 +1,17 @@
 #pragma once
+
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
 #include <utility>
 
 #include <torch/csrc/inductor/aoti_libtorch_free/storage.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/utils.h>
+
+#ifdef USE_CUDA
+#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+#endif
 
 namespace aoti::libtorch_free {
 
@@ -108,15 +114,49 @@ class SlimTensor {
     return *this;
   }
 
-  SlimTensor to(DeviceType device_type, DeviceIndex device_index = 0) {
+  SlimTensor to(DeviceType device_type, DeviceIndex device_index = 0) const {
+    // Does not mutate the current tensor, but returns a new tensor
     if (device_type == storage_->device_type() &&
         device_index == storage_->device_index()) {
       return *this;
     }
     Storage new_storage(new StorageBase(nbytes_, device_type, device_index));
     new_storage->clone(storage_, nbytes_, storage_offset_);
-    storage_ = std::move(new_storage);
-    return *this;
+    return SlimTensor(
+        std::move(new_storage), sizes_, strides_, dtype_, storage_offset_);
+  }
+
+  SlimTensor to(ScalarType dtype) const {
+    // Does not mutate the current tensor, but returns a new tensor
+    if (dtype == dtype_) {
+      return *this;
+    }
+    if (SCALAR_TYPE_TO_BYTESIZE[static_cast<int32_t>(dtype_)] ==
+        SCALAR_TYPE_TO_BYTESIZE[static_cast<int32_t>(dtype)]) {
+      // Same size, just reinterpret the dtype
+      Storage tmp_storage = storage_;
+      return SlimTensor(
+          std::move(tmp_storage), sizes_, strides_, dtype, storage_offset_);
+    }
+    if (dtype_ == ScalarType::_bfloat16 && dtype == ScalarType::_float32 &&
+        storage_->device_type() == DeviceType::cuda) {
+      // bfloat16 -> float32
+      // Only implemented this for CUDA to make llama3 example work
+#ifdef USE_CUDA
+      Storage new_storage(new StorageBase(
+          compute_nbytes(sizes_, dtype),
+          storage_->device_type(),
+          storage_->device_index()));
+      cuda_convertBFloat16ToFloat32(
+          storage_->data(), new_storage->data(), numel_);
+      Storage tmp_storage = storage_;
+      return SlimTensor(
+          std::move(tmp_storage), sizes_, strides_, dtype, storage_offset_);
+#else
+      throw std::runtime_error("CUDA is not enabled");
+#endif
+    }
+    throw std::runtime_error("Unsupported dtype conversion");
   }
 
  private:

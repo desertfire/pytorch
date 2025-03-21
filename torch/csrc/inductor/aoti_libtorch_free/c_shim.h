@@ -7,6 +7,10 @@
 #include <torch/csrc/inductor/aoti_libtorch_free/scalar_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/slim_tensor.h>
 
+// The following files are implemented in a header-only way
+#include <c10/util/BFloat16.h>
+// #include <c10/util/Half.h>
+
 using AtenTensorOpaque = aoti::libtorch_free::SlimTensor;
 using AtenTensorHandle = aoti::libtorch_free::SlimTensor*;
 
