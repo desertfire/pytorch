@@ -1296,6 +1296,11 @@ class aot_inductor:
     # Experimental.  Controls automatic precompiling of common AOTI include files.
     precompile_headers: bool = False
 
+    # Experimental.  Controls whether to generate model code in a libtorch-free way.
+    libtorch_free_codegen: bool = (
+        os.environ.get("AOT_INDUCTOR_LIBTORCH_FREE", "0") == "1"
+    )
+
 
 class cuda:
     # CUDA arch to use for CUDA template kernel compilation.

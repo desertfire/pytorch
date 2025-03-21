@@ -924,7 +924,11 @@ class CppWrapperCpu(PythonWrapperCodegen):
             self.codegen_model_constructor()
             self.codegen_const_run_driver()
             aot_mode_decls.writeline("} // namespace torch::aot_inductor")
-            aot_mode_decls.writeline("using namespace torch::aot_inductor;")
+            aot_mode_decls.writeline(
+                "using namespace aoti::libtorch_free;"
+                if config.aot_inductor.libtorch_free_codegen
+                else "using namespace torch::aot_inductor;"
+            )
 
         self.prefix = cache_decls = IndentedBuffer()
         for dtype in self.used_cached_dtypes:

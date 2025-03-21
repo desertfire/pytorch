@@ -705,7 +705,10 @@ def _get_glibcxx_abi_build_flags() -> list[str]:
 
 
 def _get_torch_cpp_wrapper_definition() -> list[str]:
-    return ["TORCH_INDUCTOR_CPP_WRAPPER", "STANDALONE_TORCH_HEADER"]
+    macros = ["TORCH_INDUCTOR_CPP_WRAPPER", "STANDALONE_TORCH_HEADER"]
+    if config.aot_inductor.libtorch_free_codegen:
+        macros.append("AOTI_LIBTORCH_FREE")
+    return macros
 
 
 def _use_custom_generated_macros() -> list[str]:
@@ -797,7 +800,11 @@ def _get_torch_related_args(
     include_dirs = include_paths()
     libraries_dirs = [TORCH_LIB_PATH]
     libraries = []
-    if sys.platform != "darwin" and not config.is_fbcode():
+    if (
+        sys.platform != "darwin"
+        and not config.is_fbcode()
+        and not config.aot_inductor.libtorch_free_codegen
+    ):
         libraries = ["torch", "torch_cpu"]
         if not aot_mode:
             libraries.append("torch_python")
@@ -1258,10 +1265,9 @@ def get_cpp_torch_device_options(
                 libraries += ["c10_hip", "torch_hip"]
             definitions.append(" __HIP_PLATFORM_AMD__")
         else:
-            if config.is_fbcode():
-                libraries += ["cuda"]
-            else:
-                libraries += ["c10_cuda", "cuda", "torch_cuda"]
+            libraries.append("cuda")
+            if not config.is_fbcode() and not config.aot_inductor.libtorch_free_codegen:
+                libraries.extend(["c10_cuda", "torch_cuda"])
             _transform_cuda_paths(libraries_dirs)
 
     if device_type == "xpu":
