@@ -138,7 +138,8 @@ class StorageBase {
         direction);
     // Check for errors
     if (err != cudaSuccess) {
-      throw std::runtime_error("cudaMemcpy failed");
+      throw std::runtime_error(
+          "cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
     }
 #else
     throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
