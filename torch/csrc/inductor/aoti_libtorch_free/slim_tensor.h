@@ -149,9 +149,8 @@ class SlimTensor {
           storage_->device_index()));
       cuda_convertBFloat16ToFloat32(
           storage_->data(), new_storage->data(), numel_);
-      Storage tmp_storage = storage_;
       return SlimTensor(
-          std::move(tmp_storage), sizes_, strides_, dtype, storage_offset_);
+          std::move(new_storage), sizes_, strides_, dtype, storage_offset_);
 #else
       throw std::runtime_error("CUDA is not enabled");
 #endif
