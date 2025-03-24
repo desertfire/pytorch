@@ -10,7 +10,7 @@
 #include <c10/util/generic_math.h>
 #include <torch/csrc/inductor/aoti_runtime/scalar_to_tensor.h>
 
-using half = at::Half;
+//using half = at::Half;
 using bfloat16 = at::BFloat16;
 
 // Round up to the nearest multiple of 64
