@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <utility>
 
 namespace aoti::libtorch_free {
@@ -99,10 +100,16 @@ class NonAtomicSharedPtr {
   T* get() const noexcept {
     return cb_ ? cb_->ptr : nullptr;
   }
-  T& operator*() const noexcept {
+  T& operator*() const {
+    if (!cb_) {
+      throw std::runtime_error("Dereferencing null NonAtomicSharedPtr");
+    }
     return *cb_->ptr;
   }
-  T* operator->() const noexcept {
+  T* operator->() const {
+    if (!cb_) {
+      throw std::runtime_error("Accessing member of null NonAtomicSharedPtr");
+    }
     return cb_->ptr;
   }
   long use_count() const noexcept {
