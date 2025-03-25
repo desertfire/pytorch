@@ -13,6 +13,89 @@
 
 namespace aoti::libtorch_free {
 
+// Device traits template for device-specific operations
+template <DeviceType D>
+struct DeviceTraits;
+
+// CPU specialization
+template <>
+struct DeviceTraits<DeviceType::cpu> {
+  static void* allocate(size_t nbytes, DeviceIndex /*device_index*/) {
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
+    return malloc(nbytes);
+  }
+  
+  static void free(void* ptr, DeviceIndex /*device_index*/) {
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
+    ::free(ptr);
+  }
+  
+  static void memcpy(
+      void* dst, 
+      const void* src, 
+      size_t nbytes, 
+      DeviceIndex /*dst_idx*/, 
+      DeviceIndex /*src_idx*/) {
+    std::memcpy(dst, src, nbytes);
+  }
+};
+
+// CUDA specialization (conditionally compiled)
+#ifdef USE_CUDA
+template <>
+struct DeviceTraits<DeviceType::cuda> {
+  static void* allocate(size_t nbytes, DeviceIndex device_index) {
+    void* data = nullptr;
+    cudaError_t err = cudaSetDevice(device_index);
+    if (err != cudaSuccess) {
+      throw std::runtime_error("cudaSetDevice failed");
+    }
+    err = cudaMalloc(&data, nbytes);
+    if (err != cudaSuccess) {
+      throw std::runtime_error("cudaMalloc failed");
+    }
+    return data;
+  }
+  
+  static void free(void* ptr, DeviceIndex device_index) {
+    cudaError_t err = cudaSetDevice(device_index);
+    if (err != cudaSuccess) {
+      std::cerr << "cudaSetDevice failed\n";
+    }
+    err = cudaFree(ptr);
+    if (err != cudaSuccess) {
+      std::cerr << "cudaFree failed\n";
+    }
+  }
+  
+  static void memcpy(
+      void* dst, 
+      const void* src, 
+      size_t nbytes,
+      DeviceIndex dst_idx,
+      DeviceIndex src_idx) {
+    // Determine the direction
+    cudaMemcpyKind direction = cudaMemcpyDeviceToDevice;
+    if (src_idx == CPU_DEVICE_INDEX) {
+      direction = cudaMemcpyHostToDevice;
+    } else if (dst_idx == CPU_DEVICE_INDEX) {
+      direction = cudaMemcpyDeviceToHost;
+    } else {
+      if (src_idx != dst_idx) {
+        throw std::runtime_error(
+            "CUDA memcpy failed: src_device_index != dst_device_index");
+      }
+    }
+    
+    cudaError_t err = cudaMemcpy(dst, src, nbytes, direction);
+    if (err != cudaSuccess) {
+      throw std::runtime_error(
+          "cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
+    }
+  }
+};
+#endif
+
 // Storage can be either owning or non-owning. For AOTI-generated intermediate
 // tensors, the storage is always owning. For constant tensors, the storage is
 // non-owning.
@@ -22,18 +105,10 @@ class StorageBase {
       : device_type_(device_type), device_index_(device_index), owning_(true) {
     // Allocating memory here so owning_ has to be true.
     if (device_type == DeviceType::cpu) {
-      // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
-      data_ = malloc(nbytes);
+      data_ = DeviceTraits<DeviceType::cpu>::allocate(nbytes, device_index);
     } else if (device_type == DeviceType::cuda) {
 #ifdef USE_CUDA
-      cudaError_t err = cudaSetDevice(device_index);
-      if (err != cudaSuccess) {
-        throw std::runtime_error("cudaSetDevice failed");
-      }
-      err = cudaMalloc(&data_, nbytes);
-      if (err != cudaSuccess) {
-        throw std::runtime_error("cudaMalloc failed");
-      }
+      data_ = DeviceTraits<DeviceType::cuda>::allocate(nbytes, device_index);
 #else
       throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
 #endif
@@ -59,18 +134,10 @@ class StorageBase {
   ~StorageBase() {
     if (owning_ && data_ != nullptr) {
       if (device_type_ == DeviceType::cpu) {
-        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
-        free(data_);
+        DeviceTraits<DeviceType::cpu>::free(data_, device_index_);
       } else if (device_type_ == DeviceType::cuda) {
 #ifdef USE_CUDA
-        cudaError_t err = cudaSetDevice(device_index_);
-        if (err != cudaSuccess) {
-          std::cerr << "cudaSetDevice failed\n";
-        }
-        err = cudaFree(data_);
-        if (err != cudaSuccess) {
-          std::cerr << "cudaFree failed\n";
-        }
+        DeviceTraits<DeviceType::cuda>::free(data_, device_index_);
 #endif
       }
     }
@@ -85,14 +152,20 @@ class StorageBase {
           "Storage clone failed: data_ can not be nullptr");
     }
 
-    if (device_type_ == DeviceType::cuda ||
-        other->device_type_ == DeviceType::cuda) {
-      cuda_clone(other, nbytes, storage_offset);
-    } else if (device_type_ == DeviceType::cpu) {
-      data_ = std::memcpy(
-          data_, static_cast<char*>(other->data_) + storage_offset, nbytes);
+    void* src_ptr = static_cast<char*>(other->data_) + storage_offset;
+    
+    if (device_type_ == DeviceType::cpu && other->device_type_ == DeviceType::cpu) {
+      // CPU to CPU copy
+      DeviceTraits<DeviceType::cpu>::memcpy(
+          data_, src_ptr, nbytes, device_index_, other->device_index_);
     } else {
-      throw std::runtime_error("Unsupported device type");
+      // At least one of the devices is CUDA
+#ifdef USE_CUDA
+      DeviceTraits<DeviceType::cuda>::memcpy(
+          data_, src_ptr, nbytes, device_index_, other->device_index_);
+#else
+      throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
+#endif
     }
   }
 
@@ -109,43 +182,6 @@ class StorageBase {
   }
 
  private:
-  void cuda_clone(
-      const NonAtomicSharedPtr<StorageBase>& other,
-      size_t nbytes,
-      int64_t storage_offset) {
-#ifdef USE_CUDA
-    DeviceType src_device_type = other->device_type_;
-    DeviceIndex src_device_index = other->device_index_;
-    DeviceType dst_device_type = device_type_;
-    DeviceIndex dst_device_index = device_index_;
-
-    cudaMemcpyKind direction = cudaMemcpyDeviceToDevice;
-    if (src_device_type == DeviceType::cpu) {
-      direction = cudaMemcpyHostToDevice;
-    } else if (dst_device_type == DeviceType::cpu) {
-      direction = cudaMemcpyDeviceToHost;
-    } else {
-      if (src_device_index != dst_device_index) {
-        throw std::runtime_error(
-            "cuda_clone failed: src_device_index != dst_device_index");
-      }
-    }
-
-    cudaError_t err = cudaMemcpy(
-        data_,
-        static_cast<char*>(other->data_) + storage_offset,
-        nbytes,
-        direction);
-    // Check for errors
-    if (err != cudaSuccess) {
-      throw std::runtime_error(
-          "cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
-    }
-#else
-    throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
-#endif
-  }
-
   void* data_ = nullptr;
   DeviceType device_type_;
   DeviceIndex device_index_;
