@@ -24,17 +24,17 @@ struct DeviceTraits<DeviceType::cpu> {
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
     return malloc(nbytes);
   }
-  
+
   static void free(void* ptr, DeviceIndex /*device_index*/) {
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
     ::free(ptr);
   }
-  
+
   static void memcpy(
-      void* dst, 
-      const void* src, 
-      size_t nbytes, 
-      DeviceIndex /*dst_idx*/, 
+      void* dst,
+      const void* src,
+      size_t nbytes,
+      DeviceIndex /*dst_idx*/,
       DeviceIndex /*src_idx*/) {
     std::memcpy(dst, src, nbytes);
   }
@@ -56,7 +56,7 @@ struct DeviceTraits<DeviceType::cuda> {
     }
     return data;
   }
-  
+
   static void free(void* ptr, DeviceIndex device_index) {
     cudaError_t err = cudaSetDevice(device_index);
     if (err != cudaSuccess) {
@@ -67,10 +67,10 @@ struct DeviceTraits<DeviceType::cuda> {
       std::cerr << "cudaFree failed\n";
     }
   }
-  
+
   static void memcpy(
-      void* dst, 
-      const void* src, 
+      void* dst,
+      const void* src,
       size_t nbytes,
       DeviceIndex dst_idx,
       DeviceIndex src_idx) {
@@ -86,12 +86,32 @@ struct DeviceTraits<DeviceType::cuda> {
             "CUDA memcpy failed: src_device_index != dst_device_index");
       }
     }
-    
+
     cudaError_t err = cudaMemcpy(dst, src, nbytes, direction);
     if (err != cudaSuccess) {
       throw std::runtime_error(
           "cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
     }
+  }
+};
+#else
+template <>
+struct DeviceTraits<DeviceType::cuda> {
+  static void* allocate(size_t nbytes, DeviceIndex device_index) {
+    throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
+  }
+
+  static void free(void* ptr, DeviceIndex device_index) {
+    throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
+  }
+
+  static void memcpy(
+      void* dst,
+      const void* src,
+      size_t nbytes,
+      DeviceIndex dst_idx,
+      DeviceIndex src_idx) {
+    throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
   }
 };
 #endif
@@ -107,11 +127,7 @@ class StorageBase {
     if (device_type == DeviceType::cpu) {
       data_ = DeviceTraits<DeviceType::cpu>::allocate(nbytes, device_index);
     } else if (device_type == DeviceType::cuda) {
-#ifdef USE_CUDA
       data_ = DeviceTraits<DeviceType::cuda>::allocate(nbytes, device_index);
-#else
-      throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
-#endif
     } else {
       throw std::runtime_error("Unsupported device type");
     }
@@ -136,9 +152,7 @@ class StorageBase {
       if (device_type_ == DeviceType::cpu) {
         DeviceTraits<DeviceType::cpu>::free(data_, device_index_);
       } else if (device_type_ == DeviceType::cuda) {
-#ifdef USE_CUDA
         DeviceTraits<DeviceType::cuda>::free(data_, device_index_);
-#endif
       }
     }
   }
@@ -153,19 +167,16 @@ class StorageBase {
     }
 
     void* src_ptr = static_cast<char*>(other->data_) + storage_offset;
-    
-    if (device_type_ == DeviceType::cpu && other->device_type_ == DeviceType::cpu) {
+
+    if (device_type_ == DeviceType::cpu &&
+        other->device_type_ == DeviceType::cpu) {
       // CPU to CPU copy
       DeviceTraits<DeviceType::cpu>::memcpy(
           data_, src_ptr, nbytes, device_index_, other->device_index_);
     } else {
       // At least one of the devices is CUDA
-#ifdef USE_CUDA
       DeviceTraits<DeviceType::cuda>::memcpy(
           data_, src_ptr, nbytes, device_index_, other->device_index_);
-#else
-      throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
-#endif
     }
   }
 
