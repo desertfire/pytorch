@@ -59,9 +59,12 @@ AOTLibtorchFreeRunner::AOTLibtorchFreeRunner(
     const size_t num_runners)
     : model_so_(dlopen(
           model_so_path.c_str(),
-          RTLD_NOW | RTLD_LOCAL |
-              RTLD_DEEPBIND)) // RTLD_DEEPBIND is required to prioritize C shim
-                              // symbols defined in model.so over libtorch.so
+          RTLD_NOW | RTLD_LOCAL
+#ifndef __APPLE__
+              | RTLD_DEEPBIND  // RTLD_DEEPBIND is required to prioritize C shim
+#endif
+              )
+              )
 {
   if (model_so_ == nullptr) {
     const char* error = dlerror();
