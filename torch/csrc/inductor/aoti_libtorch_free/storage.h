@@ -102,7 +102,7 @@ struct DeviceTraits<DeviceType::cuda> {
   }
 
   static void free(void* ptr, DeviceIndex device_index) {
-    throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
+    std::cerr << "Build with USE_CUDA=1 to enable CUDA support\n";
   }
 
   static void memcpy(
