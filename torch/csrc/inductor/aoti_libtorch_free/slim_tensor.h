@@ -120,7 +120,8 @@ class SlimTensor {
         device_index == storage_->device_index()) {
       return *this;
     }
-    Storage new_storage(new StorageBase(nbytes_, device_type, device_index));
+    Storage new_storage(
+        new MaybeOwningStorage(nbytes_, device_type, device_index));
     new_storage->clone(storage_, nbytes_, storage_offset_);
     return SlimTensor(
         std::move(new_storage), sizes_, strides_, dtype_, storage_offset_);
@@ -143,7 +144,7 @@ class SlimTensor {
       // bfloat16 -> float32
       // Only implemented this for CUDA to make llama3 example work
 #ifdef USE_CUDA
-      Storage new_storage(new StorageBase(
+      Storage new_storage(new MaybeOwningStorage(
           compute_nbytes(sizes_, dtype),
           storage_->device_type(),
           storage_->device_index()));
@@ -179,7 +180,7 @@ inline SlimTensor create_empty_tensor(
     DeviceIndex device_index = 0,
     int64_t storage_offset = 0) {
   size_t nbytes = compute_nbytes(sizes, dtype);
-  Storage storage(new StorageBase(nbytes, device_type, device_index));
+  Storage storage(new MaybeOwningStorage(nbytes, device_type, device_index));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
 
@@ -194,7 +195,7 @@ inline SlimTensor create_tensor_from_blob(
   if (data == nullptr) {
     throw std::runtime_error("data pointer can not be nullptr");
   }
-  Storage storage(new StorageBase(data, device_type, device_index));
+  Storage storage(new MaybeOwningStorage(data, device_type, device_index));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
 } // namespace aoti::libtorch_free
