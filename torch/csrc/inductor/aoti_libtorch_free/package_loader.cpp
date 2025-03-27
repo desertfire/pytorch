@@ -61,11 +61,9 @@ AOTLibtorchFreeRunner::AOTLibtorchFreeRunner(
           model_so_path.c_str(),
           RTLD_NOW | RTLD_LOCAL
 #ifndef __APPLE__
-              | RTLD_DEEPBIND  // RTLD_DEEPBIND is required to prioritize C shim
+              | RTLD_DEEPBIND // RTLD_DEEPBIND is required to prioritize C shim
 #endif
-              )
-              )
-{
+          )) {
   if (model_so_ == nullptr) {
     const char* error = dlerror();
     // NOLINTNEXTLINE(performance-avoid-endl)
