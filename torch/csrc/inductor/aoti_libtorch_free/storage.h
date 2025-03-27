@@ -6,6 +6,7 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
 #endif
 
 #include <torch/csrc/inductor/aoti_libtorch_free/device_type.h>
@@ -46,26 +47,14 @@ template <>
 struct DeviceTraits<DeviceType::cuda> {
   static void* allocate(size_t nbytes, DeviceIndex device_index) {
     void* data = nullptr;
-    cudaError_t err = cudaSetDevice(device_index);
-    if (err != cudaSuccess) {
-      throw std::runtime_error("cudaSetDevice failed");
-    }
-    err = cudaMalloc(&data, nbytes);
-    if (err != cudaSuccess) {
-      throw std::runtime_error("cudaMalloc failed");
-    }
+    AOTICudaGuard guard(device_index);
+    throw_cuda_error(cudaMalloc(&data, nbytes));
     return data;
   }
 
   static void free(void* ptr, DeviceIndex device_index) {
-    cudaError_t err = cudaSetDevice(device_index);
-    if (err != cudaSuccess) {
-      std::cerr << "cudaSetDevice failed\n";
-    }
-    err = cudaFree(ptr);
-    if (err != cudaSuccess) {
-      std::cerr << "cudaFree failed\n";
-    }
+    AOTICudaGuard guard(device_index);
+    print_cuda_error(cudaFree(ptr));
   }
 
   static void memcpy(
@@ -87,11 +76,7 @@ struct DeviceTraits<DeviceType::cuda> {
       }
     }
 
-    cudaError_t err = cudaMemcpy(dst, src, nbytes, direction);
-    if (err != cudaSuccess) {
-      throw std::runtime_error(
-          "cudaMemcpy failed: " + std::string(cudaGetErrorString(err)));
-    }
+    throw_cuda_error(cudaMemcpy(dst, src, nbytes, direction));
   }
 };
 #else
@@ -199,11 +184,12 @@ class MaybeOwningStorage {
   }
 
   void unsafe_set_to_non_owning() {
-    // This is only used when interacting with at::Tensor. When testing libtorch-free
-    // AOTI from pytorch, we need to convert the output SlimTensor into
-    // at::Tensor, which means the storage ownership should be stolen by at::Tensor.
-    // When all the SlimTensors referencing the storage are destroyed, the storage
-    // should NOT be freed. It should be freed when the at::Tensor is destroyed.
+    // This is only used when interacting with at::Tensor. When testing
+    // libtorch-free AOTI from pytorch, we need to convert the output SlimTensor
+    // into at::Tensor, which means the storage ownership should be stolen by
+    // at::Tensor. When all the SlimTensors referencing the storage are
+    // destroyed, the storage should NOT be freed. It should be freed when the
+    // at::Tensor is destroyed.
     owning_ = false;
   }
 
