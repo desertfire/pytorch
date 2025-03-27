@@ -32,7 +32,7 @@ class SlimTensor {
         storage_offset_(storage_offset) {}
 
   SlimTensor() {
-    printf("SlimTensor::SlimTensor() should not be called\n");
+    throw std::runtime_error("SlimTensor::SlimTensor() should not be called\n");
   }
   SlimTensor(const SlimTensor&) = default;
   SlimTensor& operator=(const SlimTensor&) = default;

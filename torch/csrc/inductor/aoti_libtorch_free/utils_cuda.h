@@ -10,14 +10,28 @@
 #include <unordered_map>
 
 namespace aoti::libtorch_free {
+
+inline void throw_cuda_error(cudaError_t err) {
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string(cudaGetErrorString(err)));
+  }
+}
+
+// Used in destructor because can't throw in destructor
+inline void print_cuda_error(cudaError_t err) {
+  if (err != cudaSuccess) {
+    std::cerr << cudaGetErrorString(err) << std::endl;
+  }
+}
+
 class AOTICudaGuard {
  public:
   AOTICudaGuard(int32_t device_index) : device_(device_index) {
     // Save original device
-    cudaGetDevice(&prev_device_);
+    throw_cuda_error(cudaGetDevice(&prev_device_));
     // Switch to the target device if necessary
     if (prev_device_ != device_) {
-      cudaSetDevice(device_);
+      throw_cuda_error(cudaSetDevice(device_));
     }
   }
 
@@ -30,13 +44,13 @@ class AOTICudaGuard {
   ~AOTICudaGuard() {
     // Restore the original device if necessary
     if (prev_device_ != device_) {
-      cudaSetDevice(prev_device_);
+      print_cuda_error(cudaSetDevice(prev_device_));
     }
   }
 
   void set_index(int32_t device_index) {
     device_ = device_index;
-    cudaSetDevice(device_index);
+    throw_cuda_error(cudaSetDevice(device_));
   }
 
  private:
@@ -62,10 +76,11 @@ class AOTICudaStreamGuard {
   AOTICudaStreamGuard(cudaStream_t stream, int32_t device_index)
       : stream_(stream), device_(device_index) {
     // Save original device
-    cudaGetDevice(&prev_device_);
+    throw_cuda_error(cudaGetDevice(&prev_device_));
+
     // Switch to the target device if necessary
     if (prev_device_ != device_) {
-      cudaSetDevice(device_);
+      throw_cuda_error(cudaSetDevice(device_));
     }
 
     // Save the original stream for the current device
@@ -80,7 +95,7 @@ class AOTICudaStreamGuard {
 
     // Restore the original device if necessary
     if (prev_device_ != device_) {
-      cudaSetDevice(prev_device_);
+      print_cuda_error(cudaSetDevice(prev_device_));
     }
   }
 
@@ -101,22 +116,14 @@ class AOTICudaStream {
  public:
   AOTICudaStream(int32_t device_index = 0)
       : device_index_(device_index), stream_(nullptr) {
-    cudaError_t err = cudaSetDevice(device_index_);
-    if (err == cudaSuccess) {
-      err = cudaStreamCreate(&stream_);
-      if (err != cudaSuccess) {
-        throw std::runtime_error(
-            "cudaStreamCreate failed: " + std::string(cudaGetErrorString(err)));
-        stream_ = nullptr;
-      }
-    } else {
-      throw std::runtime_error(
-          "cudaSetDevice failed: " + std::string(cudaGetErrorString(err)));
-    }
+    throw_cuda_error(cudaSetDevice(device_index_));
+    throw_cuda_error(cudaStreamCreate(&stream_));
   }
 
   ~AOTICudaStream() {
-    destroy_stream();
+    if (stream_) {
+      print_cuda_error(cudaStreamDestroy(stream_));
+    }
   }
 
   // Disable copy constructor and copy assignment
@@ -127,11 +134,13 @@ class AOTICudaStream {
   AOTICudaStream(AOTICudaStream&& other) noexcept : stream_(other.stream_) {
     other.stream_ = nullptr;
   }
+
   // Move assignment
   AOTICudaStream& operator=(AOTICudaStream&& other) noexcept {
     if (this != &other) {
-      // Destroy current stream_ if it exists
-      destroy_stream();
+      if (stream_) {
+        throw_cuda_error(cudaStreamDestroy(stream_));
+      }
       stream_ = other.stream_;
       other.stream_ = nullptr;
     }
@@ -143,18 +152,8 @@ class AOTICudaStream {
   }
 
  private:
-  void destroy_stream() {
-    if (stream_) {
-      cudaError_t err = cudaStreamDestroy(stream_);
-      if (err != cudaSuccess) {
-        std::cerr << "Failed to destroy CUDA stream: "
-                  << cudaGetErrorString(err) << std::endl;
-      }
-    }
-  }
-
-  int32_t device_index_;
-  cudaStream_t stream_;
+  int32_t device_index_{0};
+  cudaStream_t stream_{nullptr};
 };
 
 void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel);
