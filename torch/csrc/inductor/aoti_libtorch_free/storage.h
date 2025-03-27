@@ -119,9 +119,12 @@ struct DeviceTraits<DeviceType::cuda> {
 // Storage can be either owning or non-owning. For AOTI-generated intermediate
 // tensors, the storage is always owning. For constant tensors, the storage is
 // non-owning.
-class StorageBase {
+class MaybeOwningStorage {
  public:
-  StorageBase(size_t nbytes, DeviceType device_type, DeviceIndex device_index)
+  MaybeOwningStorage(
+      size_t nbytes,
+      DeviceType device_type,
+      DeviceIndex device_index)
       : device_type_(device_type), device_index_(device_index), owning_(true) {
     // Allocating memory here so owning_ has to be true.
     if (device_type == DeviceType::cpu) {
@@ -133,7 +136,10 @@ class StorageBase {
     }
   }
 
-  StorageBase(void* data, DeviceType device_type, DeviceIndex device_index)
+  MaybeOwningStorage(
+      void* data,
+      DeviceType device_type,
+      DeviceIndex device_index)
       : data_(data),
         device_type_(device_type),
         device_index_(device_index),
@@ -141,13 +147,13 @@ class StorageBase {
     // data pointer is not owned by this object
   }
 
-  StorageBase() = delete;
-  StorageBase& operator=(StorageBase&& other) = delete;
-  StorageBase& operator=(const StorageBase&) = delete;
-  StorageBase(StorageBase&& other) = delete;
-  StorageBase(const StorageBase&) = delete;
+  MaybeOwningStorage() = delete;
+  MaybeOwningStorage& operator=(MaybeOwningStorage&& other) = delete;
+  MaybeOwningStorage& operator=(const MaybeOwningStorage&) = delete;
+  MaybeOwningStorage(MaybeOwningStorage&& other) = delete;
+  MaybeOwningStorage(const MaybeOwningStorage&) = delete;
 
-  ~StorageBase() {
+  ~MaybeOwningStorage() {
     if (owning_ && data_ != nullptr) {
       if (device_type_ == DeviceType::cpu) {
         DeviceTraits<DeviceType::cpu>::free(data_, device_index_);
@@ -158,7 +164,7 @@ class StorageBase {
   }
 
   void clone(
-      const NonAtomicSharedPtr<StorageBase>& other,
+      const NonAtomicSharedPtr<MaybeOwningStorage>& other,
       size_t nbytes,
       int64_t storage_offset) {
     if (data_ == nullptr || other->data_ == nullptr) {
@@ -192,6 +198,15 @@ class StorageBase {
     return device_index_;
   }
 
+  void unsafe_set_to_non_owning() {
+    // This is only used when interacting with at::Tensor. When testing libtorch-free
+    // AOTI from pytorch, we need to convert the output SlimTensor into
+    // at::Tensor, which means the storage ownership should be stolen by at::Tensor.
+    // When all the SlimTensors referencing the storage are destroyed, the storage
+    // should NOT be freed. It should be freed when the at::Tensor is destroyed.
+    owning_ = false;
+  }
+
  private:
   void* data_ = nullptr;
   DeviceType device_type_;
@@ -199,6 +214,6 @@ class StorageBase {
   bool owning_;
 };
 
-using Storage = NonAtomicSharedPtr<StorageBase>;
+using Storage = NonAtomicSharedPtr<MaybeOwningStorage>;
 
 } // namespace aoti::libtorch_free
