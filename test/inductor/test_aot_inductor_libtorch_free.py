@@ -69,7 +69,9 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
         other_cls.is_dtype_supported = my_cls.is_dtype_supported
 
 
-test_list_cpu = {}
+test_list_cpu = {
+    "test_simple",
+}
 
 
 class AOTInductorTestLibtorchFreeCpu(TestCase):

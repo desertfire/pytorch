@@ -2,7 +2,6 @@
 
 // This header mimics APIs in aoti_torch/c/shim.h in a libtorch-free way.
 //
-#include <torch/csrc/inductor/aoti_libtorch_free/device_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/layout.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/scalar_type.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/slim_tensor.h>
