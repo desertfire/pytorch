@@ -165,6 +165,8 @@ class CppWrapperCpu(PythonWrapperCodegen):
         # present.
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
+            f"torch/csrc/inductor/aoti_libtorch_free/{self.device}/c_shim_{self.device}.h"
+            if config.aot_inductor.libtorch_free_codegen else
             f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
         extend_aoti_c_shim_path = os.path.join(

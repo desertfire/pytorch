@@ -34,6 +34,33 @@ enum class DeviceType : int8_t {
   FORALL_DEVICE_TYPES(DEFINE_ENUM)
 #undef DEFINE_ENUM
 };
+
+// Device struct that encapsulates both device type and device index
+struct Device {
+  DeviceType type;
+  DeviceIndex index;
+
+  Device() : type(DeviceType::cpu), index(0) {}
+  Device(DeviceType t, DeviceIndex i) : type(t), index(i) {}
+
+  bool is_cpu() const {
+    return type == DeviceType::cpu;
+  }
+  bool is_cuda() const {
+    return type == DeviceType::cuda;
+  }
+
+  // Equality operators
+  bool operator==(const Device& other) const {
+    return type == other.type && index == other.index;
+  }
+
+  bool operator!=(const Device& other) const {
+    return !(*this == other);
+  }
+};
+
+const Device CPU_DEVICE = Device(DeviceType::cpu, 0);
 } // namespace aoti::libtorch_free
 
 #ifdef __cplusplus

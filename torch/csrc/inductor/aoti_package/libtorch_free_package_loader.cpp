@@ -32,8 +32,9 @@ std::vector<aoti::libtorch_free::SlimTensor> convert_aten_tensor_to_slim_tensor(
             c10::typeMetaToScalarType(tensor.dtype())),
         // device_type is 1-to-1 mapping for now. No guanrantee it will
         // always be the case
-        static_cast<aoti::libtorch_free::DeviceType>(tensor.device().type()),
-        static_cast<aoti::libtorch_free::DeviceIndex>(tensor.device().index()),
+        {static_cast<aoti::libtorch_free::DeviceType>(tensor.device().type()),
+         static_cast<aoti::libtorch_free::DeviceIndex>(
+             tensor.device().index())},
         tensor.storage_offset()));
   }
   return result;
