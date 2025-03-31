@@ -9,7 +9,7 @@
 #include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
 #endif
 
-#include <torch/csrc/inductor/aoti_libtorch_free/device_type.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/device.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/non_atomic_shared_ptr.h>
 
 namespace aoti::libtorch_free {
