@@ -125,8 +125,8 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
       sizes,
       strides,
       static_cast<aoti::libtorch_free::ScalarType>(dtype),
-      static_cast<aoti::libtorch_free::DeviceType>(device_type),
-      static_cast<aoti::libtorch_free::DeviceIndex>(device_index),
+      {static_cast<aoti::libtorch_free::DeviceType>(device_type),
+       static_cast<aoti::libtorch_free::DeviceIndex>(device_index)},
       storage_offset));
   return AOTI_TORCH_SUCCESS;
 }
@@ -144,8 +144,8 @@ inline AOTITorchError aoti_torch_empty_strided(
       sizes,
       strides,
       static_cast<aoti::libtorch_free::ScalarType>(dtype),
-      static_cast<aoti::libtorch_free::DeviceType>(device_type),
-      static_cast<aoti::libtorch_free::DeviceIndex>(device_index),
+      {static_cast<aoti::libtorch_free::DeviceType>(device_type),
+       static_cast<aoti::libtorch_free::DeviceIndex>(device_index)},
       0));
   return AOTI_TORCH_SUCCESS;
 }
@@ -187,8 +187,7 @@ inline AOTITorchError aoti_torch_clone(
       self->sizes(),
       self->strides(),
       self->dtype(),
-      self->device_type(),
-      self->device_index(),
+      {self->device_type(), self->device_index()},
       0);
   tmp_tensor.copy_(*self);
   *ret = new aoti::libtorch_free::SlimTensor(tmp_tensor);
