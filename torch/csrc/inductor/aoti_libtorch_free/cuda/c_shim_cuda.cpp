@@ -1,3 +1,4 @@
+#ifdef USE_CUDA
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/cuda/c_shim_cuda.h>
@@ -47,3 +48,5 @@ AOTITorchError aoti_torch_cuda_mm_out(
   }
   return AOTI_TORCH_SUCCESS;
 }
+
+#endif // USE_CUDA
