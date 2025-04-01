@@ -2,6 +2,7 @@
 
 #include <c10/util/error.h>
 #include <c10/util/string_view.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner_cpu.h>
@@ -85,8 +86,7 @@ std::tuple<std::string, std::string> get_cpp_compile_command(
   std::string target_file = output_dir + filename + file_ext;
   std::string target_dir = output_dir;
   if (target_dir.empty()) {
-    size_t parent_path_idx =
-        filename.find_last_of(aoti::libtorch_free::k_separator);
+    size_t parent_path_idx = filename.find_last_of(k_separator);
     target_dir = filename.substr(0, parent_path_idx);
   }
 
@@ -125,7 +125,7 @@ std::tuple<std::string, std::string> get_cpp_compile_command(
     std::string arg_str = arg.get<std::string>();
     std::string target = "script.ld";
     std::string replacement = target_dir;
-    replacement.append(aoti::libtorch_free::k_separator).append(target);
+    replacement.append(k_separator).append(target);
     size_t pos = arg_str.find(target);
     if (pos != std::string::npos) {
       arg_str.replace(pos, target.length(), replacement);
@@ -283,7 +283,7 @@ std::string compile_so(
 
   // Move the mmapped weights onto the .so
   std::string serialized_weights_path = filename + "_serialized_weights.bin";
-  if (aoti::libtorch_free::file_exists(serialized_weights_path)) {
+  if (file_exists(serialized_weights_path)) {
     std::ifstream serialized_weights_file(
         serialized_weights_path, std::ios::binary);
     if (!serialized_weights_file.is_open()) {
@@ -341,9 +341,9 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
   }
 
   temp_dir_ = create_temp_dir();
-  std::string so_filename;
-  std::string cpp_filename;
-  std::string consts_filename;
+  std::string so_path;
+  std::string cpp_path;
+  std::string consts_path;
   std::string found_filenames; // Saving for bookkeeping
   std::string model_directory =
       "data" + k_separator + "aotinductor" + k_separator + model_name;
@@ -410,13 +410,13 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
       if (extension_idx != std::string::npos) {
         std::string filename_extension = output_path_str.substr(extension_idx);
         if (filename_extension == ".cpp") {
-          cpp_filename = output_path_str;
+          cpp_path = output_path_str;
         }
         if (filename_extension == ".o") {
-          consts_filename = output_path_str;
+          consts_path = output_path_str;
         }
         if (filename_extension == ".so") {
-          so_filename = output_path_str;
+          so_path = output_path_str;
         }
       }
     }
@@ -430,7 +430,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
         mz_zip_get_error_string(mz_zip_get_last_error(&zip_archive)));
   }
 
-  if (cpp_filename.empty() && so_filename.empty()) {
+  if (cpp_path.empty() && so_path.empty()) {
     throw std::runtime_error(
         "No AOTInductor generate cpp file or so file found in zip archive. Loaded the following:\n" +
         found_filenames);
@@ -459,6 +459,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
     throw std::runtime_error("Unsupported device found: " + device);
   }
 
+  std::string cubin_dir = temp_dir_ + k_separator + model_directory;
   runner_ = registered_aoti_runner[device](
       so_path, num_runners, device, cubin_dir, run_single_threaded);
 }
@@ -466,7 +467,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
 AOTIModelPackageLoader::~AOTIModelPackageLoader() {
   // Clean up the temporary directory
   if (!temp_dir_.empty()) {
-    aoti::libtorch_free::recursive_rmdir(temp_dir_);
+    recursive_rmdir(temp_dir_);
   }
 }
 
@@ -484,6 +485,12 @@ std::vector<at::Tensor> AOTIModelPackageLoader::boxed_run(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle) {
   return runner_->boxed_run(std::move(inputs), stream_handle);
+}
+
+std::vector<at::Tensor> AOTIModelPackageLoader::flattened_run(
+    std::vector<at::Tensor>&& inputs,
+    void* stream_handle) {
+  return runner_->flattened_run(std::move(inputs), stream_handle);
 }
 
 std::unordered_map<std::string, std::string> AOTIModelPackageLoader::

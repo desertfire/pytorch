@@ -239,7 +239,10 @@ class AOTICompiledModel:
     Callable AOT Inductor loaded model from a .pt2
     """
 
-    def __init__(self, loader: torch._C._aoti.AOTIModelPackageLoader) -> None:
+    def __init__(
+        self,
+        loader: torch._C._aoti.AOTIModelPackageLoader,
+    ) -> None:
         self.loader = loader
 
     def __call__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -290,6 +293,7 @@ def load_package(
     model_name: str = "model",
     run_single_threaded: bool = False,
     num_runners: int = 1,
+    libtorch_free: bool = False,
 ) -> AOTICompiledModel:  # type: ignore[type-arg]
     assert (
         isinstance(path, (io.IOBase, IO)) and path.readable() and path.seekable()

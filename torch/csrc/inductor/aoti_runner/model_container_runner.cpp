@@ -6,6 +6,8 @@
 #include <torch/csrc/inductor/aoti_torch/oss_proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/tensor_converter.h>
 
+#include <ATen/ops/from_blob.h>
+
 #include <filesystem>
 namespace fs = std::filesystem;
 
@@ -95,7 +97,10 @@ consider rebuild your model with the latest AOTInductor.");
       "AOTInductorModelContainerExtractConstantsMap")
   TRY_LOAD_SYMBOL(
       update_user_managed_constant_buffer_func_,
-      "AOTInductorModelContainerUpdateUserManagedConstantBuffer")
+      "AOTInductorModelContainerUpdateUserManagedConstantBuffer");
+  TRY_LOAD_SYMBOL(
+      flattened_run_func_,
+      "AOTInductorModelContainerFlattenedRunSingleThreaded");
 #undef TRY_LOAD_SYMBOL
 
   // Hack to find the json file name from the model so file
@@ -162,6 +167,91 @@ std::vector<at::Tensor> AOTIModelContainerRunner::boxed_run(
       torch::aot_inductor::unsafe_alloc_new_handles_from_tensors(inputs);
   std::move(inputs).clear();
   return run_impl(input_handles, stream_handle);
+}
+
+// inputs and outputs are flattened, used for calling from aten
+// tensor to libtorch_free tensor
+std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
+    std::vector<at::Tensor>&& inputs,
+    void* stream_handle) {
+  if (!flattened_run_func_) {
+    throw std::runtime_error(
+        "AOTInductorModelContainerFlattenedRun is only available in the libtorch-free mode.");
+  }
+
+  using FlattenedTensor = std::tuple<
+      void*, // data_ptr
+      const int64_t*, // sizes
+      const int64_t*, // strides
+      int64_t, // dim
+      int32_t, // dtype
+      int32_t, // device_type
+      int32_t, // device_index
+      int64_t // storage_offset
+      >;
+
+  std::vector<void*> input_handles;
+  input_handles.reserve(inputs.size());
+  for (const at::Tensor& tensor : std::move(inputs)) {
+    // Unsafe allocation, object will be released by
+    // AOTInductorModelContainerFlattenedRun.
+    input_handles.push_back(static_cast<void*>(new FlattenedTensor(
+        tensor.data_ptr(),
+        tensor.sizes().data(),
+        tensor.strides().data(),
+        tensor.dim(),
+        static_cast<int32_t>(tensor.scalar_type()),
+        static_cast<int32_t>(tensor.device().type()),
+        static_cast<int32_t>(tensor.device().index()),
+        tensor.storage_offset())));
+  }
+
+  size_t num_outputs = 0;
+  AOTI_RUNTIME_ERROR_CODE_CHECK(
+      get_num_outputs_func_(container_handle_, &num_outputs));
+  std::vector<void*> output_handles(num_outputs);
+
+  AOTI_RUNTIME_ERROR_CODE_CHECK(flattened_run_func_(
+      container_handle_,
+      input_handles.data(),
+      input_handles.size(),
+      output_handles.data(),
+      output_handles.size(),
+      reinterpret_cast<AOTInductorStreamHandle>(stream_handle),
+      nullptr)); // ProxyExecutor not supported in this mode
+
+  std::vector<at::Tensor> result;
+  result.reserve(num_outputs);
+  for (size_t i = 0; i < num_outputs; i++) {
+    FlattenedTensor* tuple =
+        reinterpret_cast<FlattenedTensor*>(output_handles[i]);
+    c10::IntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
+    c10::IntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    c10::Device device = c10::Device(
+        static_cast<c10::DeviceType>(std::get<5>(*tuple)),
+        static_cast<c10::DeviceIndex>(std::get<6>(*tuple)));
+    c10::TensorOptions options = c10::TensorOptions().device(device).dtype(
+        static_cast<c10::ScalarType>(std::get<4>(*tuple)));
+
+    std::function<void(void*)> deleter;
+    if (device.is_cpu()) {
+      deleter = [](void* ptr) { free(ptr); };
+    } else if (device.is_cuda()) {
+#ifdef USE_CUDA
+      deleter = [](void* ptr) { cudaFree(ptr); };
+#endif
+    }
+
+    result.push_back(at::for_blob(std::get<0>(*tuple), sizes)
+                         .strides(strides)
+                         .storage_offset(std::get<7>(*tuple))
+                         .options(options)
+                         .deleter(deleter)
+                         .make_tensor());
+    // Ownership has been transferred to the caller, so we need to delete here
+    delete tuple;
+  }
+  return result;
 }
 
 std::unordered_map<std::string, std::string> AOTIModelContainerRunner::

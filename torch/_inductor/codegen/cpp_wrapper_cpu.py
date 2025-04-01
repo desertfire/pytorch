@@ -166,8 +166,8 @@ class CppWrapperCpu(PythonWrapperCodegen):
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
             f"torch/csrc/inductor/aoti_libtorch_free/{self.device}/c_shim_{self.device}.h"
-            if config.aot_inductor.libtorch_free_codegen else
-            f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
+            if config.aot_inductor.libtorch_free_codegen
+            else f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
         extend_aoti_c_shim_path = os.path.join(
             os.path.dirname(torch.__file__),
@@ -200,12 +200,31 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 os.path.join(os.path.dirname(__file__), "aoti_runtime", "interface.cpp")
             ) as f:
                 self.header.splice(f.read())
-            for file in [
-                os.path.join(os.path.dirname(__file__), "..", "..", "csrc", "inductor", "aoti_libtorch_free", "cpu",  "c_shim_cpu.cpp"),
-                os.path.join(os.path.dirname(__file__), "..", "..", "csrc", "inductor", "aoti_libtorch_free", "cuda",  "c_shim_cuda.cpp"),
-            ]:
-                with open(file) as f:
-                    self.header.splice(f.read())
+            if config.aot_inductor.libtorch_free_codegen:
+                for file in [
+                    os.path.join(
+                        os.path.dirname(__file__),
+                        "..",
+                        "..",
+                        "csrc",
+                        "inductor",
+                        "aoti_libtorch_free",
+                        "cpu",
+                        "c_shim_cpu.cpp",
+                    ),
+                    os.path.join(
+                        os.path.dirname(__file__),
+                        "..",
+                        "..",
+                        "csrc",
+                        "inductor",
+                        "aoti_libtorch_free",
+                        "cuda",
+                        "c_shim_cuda.cpp",
+                    ),
+                ]:
+                    with open(file) as f:
+                        self.header.splice(f.read())
             self.header.splice("\n")
 
         enable_kernel_profile = config.cpp.enable_kernel_profile and sys.platform in [

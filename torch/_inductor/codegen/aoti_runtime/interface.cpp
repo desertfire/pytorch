@@ -2,6 +2,9 @@
 
 #include <torch/csrc/inductor/aoti_runtime/interface.h>
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
+#ifdef AOTI_LIBTORCH_FREE
+#include <torch/csrc/inductor/aoti_libtorch_free/slim_tensor.h>
+#endif
 
 #include <iostream>
 #include <sstream>
@@ -143,6 +146,88 @@ AOTIRuntimeError AOTInductorModelContainerRunSingleThreaded(
         input_handles, output_handles, stream, proxy_executor_handle);
   })
 }
+
+AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
+    AOTInductorModelContainerHandle container_handle,
+    void** input_handles,
+    size_t num_inputs,
+    void** output_handles,
+    size_t num_outputs,
+    AOTInductorStreamHandle stream_handle,
+    AOTIProxyExecutorHandle proxy_executor_handle) {
+#ifdef AOTI_LIBTORCH_FREE
+  auto* container =
+      reinterpret_cast<torch::aot_inductor::AOTInductorModelContainer*>(
+          container_handle);
+  AOTI_VECTOR_SIZE_CHECK(num_inputs, container->num_inputs(), "inputs");
+  AOTI_VECTOR_SIZE_CHECK(num_outputs, container->num_outputs(), "outputs");
+
+  using FlattenedTensor = std::tuple<
+      void*, // data_ptr
+      const int64_t*, // sizes
+      const int64_t*, // strides
+      int64_t, // dim
+      int32_t, // dtype
+      int32_t, // device_type
+      int32_t, // device_index
+      int64_t // storage_offset
+      >;
+
+  std::vector<aoti::libtorch_free::SlimTensor*> inputs;
+  inputs.reserve(num_inputs);
+  for (size_t i = 0; i < num_inputs; i++) {
+    FlattenedTensor* tuple = reinterpret_cast<FlattenedTensor*>(input_handles[i]);
+    IntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
+    IntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    inputs.push_back(new aoti::libtorch_free::SlimTensor(
+      aoti::libtorch_free::create_tensor_from_blob(
+        std::get<0>(*tuple),
+        sizes,
+        strides,
+        // dtype is 1-to-1 mapping for now
+        static_cast<aoti::libtorch_free::ScalarType>(std::get<4>(*tuple)),
+        // device_type is 1-to-1 mapping for now
+        {static_cast<aoti::libtorch_free::DeviceType>(std::get<5>(*tuple)),
+        static_cast<aoti::libtorch_free::DeviceIndex>(std::get<6>(*tuple))},
+        std::get<7>(*tuple))));
+    delete tuple;
+  }
+
+  auto stream =
+    reinterpret_cast<torch::aot_inductor::DeviceStreamType>(stream_handle);
+
+  CONVERT_EXCEPTION_TO_ERROR_CODE({
+    AOTINoGradGuard guard;
+    std::vector<aoti::libtorch_free::SlimTensor*> outputs(num_outputs);
+
+    container->run_single_threaded(
+        inputs.data(), outputs.data(), stream, proxy_executor_handle);
+
+    std::vector<aoti::libtorch_free::SlimTensor*> inputs;
+    for (size_t i = 0; i < num_outputs; i++) {
+      aoti::libtorch_free::SlimTensor* tensor = outputs[i];
+      FlattenedTensor *tuple = new FlattenedTensor(
+        tensor->data_ptr(),
+        tensor->sizes().data(),
+        tensor->strides().data(),
+        tensor->dim(),
+        static_cast<int32_t>(tensor->dtype()),
+        static_cast<int32_t>(tensor->device_type()),
+        static_cast<int32_t>(tensor->device_index()),
+        tensor->storage_offset()
+        );
+      output_handles[i] = static_cast<void*>(tuple);
+      // Set storage to non-owning and transfer storage ownership to at::Tensor
+      tensor->storage()->unsafe_set_to_non_owning();
+      delete tensor;
+    }
+  })
+#else
+  // This function is only provided in the libtorch-free mode
+  return AOTI_RUNTIME_FAILURE;
+#endif
+}
+
 
 AOTIRuntimeError AOTInductorModelContainerGetNumConstants(
     AOTInductorModelContainerHandle container_handle,
