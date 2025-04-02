@@ -70,7 +70,8 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
 
 
 test_list_cpu = {
-    "test_simple",
+    #"test_simple",
+    "test_cos",
 }
 
 
@@ -87,12 +88,13 @@ class AOTInductorTestLibtorchFreeCpu(TestCase):
 copy_tests(
     AOTInductorTestsTemplate,
     AOTInductorTestLibtorchFreeCpu,
-    "libtorch_free",
+    "cpu_libtorch_free",
     test_list_cpu,
 )
 
 test_list_gcpu = {
     "test_simple",
+    "test_cos",
 }
 
 
@@ -110,7 +112,7 @@ class AOTInductorTestLibtorchFreeGpu(TestCase):
 copy_tests(
     AOTInductorTestsTemplate,
     AOTInductorTestLibtorchFreeGpu,
-    "libtorch_free",
+    f"{GPU_TYPE}_libtorch_free",
     test_list_gcpu,
 )
 
