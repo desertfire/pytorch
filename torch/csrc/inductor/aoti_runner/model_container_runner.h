@@ -35,7 +35,7 @@ class TORCH_API AOTIModelContainerRunner {
 
   // inputs and outputs are flattened, used for calling from aten
   // tensor to libtorch_free tensor
-  std::vector<at::Tensor> flattened_run(
+  virtual std::vector<at::Tensor> flattened_run(
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr);
 
@@ -75,6 +75,11 @@ class TORCH_API AOTIModelContainerRunner {
   virtual std::vector<at::Tensor> run_impl(
       std::vector<AtenTensorHandle>& input_handles,
       void* stream_handle);
+
+  std::vector<at::Tensor> flattened_run_impl(
+      std::vector<at::Tensor>&& inputs,
+      void* stream_handle,
+      std::function<void(void*)> deleter);
 
   std::unique_ptr<at::DynamicLibrary> model_so_;
   decltype(&AOTInductorModelContainerCreateWithDevice) create_func_{nullptr};

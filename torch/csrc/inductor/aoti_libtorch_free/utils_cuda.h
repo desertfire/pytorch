@@ -58,7 +58,7 @@ class AOTICudaGuard {
   int32_t device_;
 };
 
-static thread_local std::unordered_map<int, cudaStream_t> current_streams;
+inline std::unordered_map<int, cudaStream_t> current_streams;
 
 // Get the current stream for a specific device
 inline cudaStream_t get_current_stream(int32_t device) {

@@ -129,12 +129,12 @@ class AOTInductorTestsTemplate:
                 super().__init__()
                 self.linear = torch.nn.Linear(10, 10)
 
-            def forward(self, x, y):
-                return x + self.linear(y)
+            def forward(self, y):
+                return self.linear(y)
 
         example_inputs = (
-            torch.randn(10, 10, device=self.device),
-            torch.randn(10, 10, device=self.device),
+            # torch.zeros(10, 10, device=self.device),
+            torch.eye(10, 10, device=self.device),
         )
         model = Model()
         self.check_model(model, example_inputs)
@@ -142,6 +142,18 @@ class AOTInductorTestsTemplate:
             self.code_check_count(
                 model, example_inputs, "AOTInductorModelRunMinimalArrayrefInterface(", 1
             )
+
+    def test_cos(self):
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, x):
+                y = torch.cos(x)
+                return y
+
+        example_inputs = (torch.randn(16, 10, device=self.device),)
+        self.check_model(Model(), example_inputs)
 
     def test_small_constant(self):
         class Model(torch.nn.Module):

@@ -1255,7 +1255,11 @@ def get_cpp_torch_device_options(
 
     include_dirs = cpp_extension.include_paths(device_type)
     libraries_dirs = cpp_extension.library_paths(device_type)
-    if device_type == "cuda":
+
+    if device_type == "cpu":
+        libraries.extend(["openblas", "sleef"])
+
+    elif device_type == "cuda":
         definitions.append(" USE_ROCM" if torch.version.hip else " USE_CUDA")
 
         if torch.version.hip is not None:
@@ -1266,11 +1270,13 @@ def get_cpp_torch_device_options(
             definitions.append(" __HIP_PLATFORM_AMD__")
         else:
             libraries.append("cuda")
+            if config.aot_inductor.libtorch_free_codegen:
+                libraries.append("cublas")
             if not config.is_fbcode() and not config.aot_inductor.libtorch_free_codegen:
                 libraries.extend(["c10_cuda", "torch_cuda"])
             _transform_cuda_paths(libraries_dirs)
 
-    if device_type == "xpu":
+    elif device_type == "xpu":
         definitions.append(" USE_XPU")
         # Suppress multi-line comment warnings in sycl headers
         cflags += ["Wno-comment"]

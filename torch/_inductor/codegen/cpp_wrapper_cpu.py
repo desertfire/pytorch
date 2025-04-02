@@ -201,24 +201,22 @@ class CppWrapperCpu(PythonWrapperCodegen):
             ) as f:
                 self.header.splice(f.read())
             if config.aot_inductor.libtorch_free_codegen:
+                csrc_root = os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "..",
+                    "csrc",
+                    "inductor",
+                    "aoti_libtorch_free",
+                )
                 for file in [
                     os.path.join(
-                        os.path.dirname(__file__),
-                        "..",
-                        "..",
-                        "csrc",
-                        "inductor",
-                        "aoti_libtorch_free",
+                        csrc_root,
                         "cpu",
                         "c_shim_cpu.cpp",
                     ),
                     os.path.join(
-                        os.path.dirname(__file__),
-                        "..",
-                        "..",
-                        "csrc",
-                        "inductor",
-                        "aoti_libtorch_free",
+                        csrc_root,
                         "cuda",
                         "c_shim_cuda.cpp",
                     ),

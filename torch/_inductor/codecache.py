@@ -1713,6 +1713,9 @@ class AotCodeCompiler:
 
             metadata = config.aot_inductor.metadata
             metadata["AOTI_DEVICE_KEY"] = device_type
+            metadata["LIBTORCH_FREE"] = (
+                "1" if config.aot_inductor.libtorch_free_codegen else "0"
+            )
 
             # Save user provided metadata
             meta_json = str(

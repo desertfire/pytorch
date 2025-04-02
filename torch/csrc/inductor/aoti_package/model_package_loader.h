@@ -26,12 +26,6 @@ class TORCH_API AOTIModelPackageLoader {
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr);
 
-  // inputs and outputs are flattened, used for calling from aten
-  // tensor to libtorch_free tensor
-  std::vector<at::Tensor> flattened_run(
-      std::vector<at::Tensor>&& inputs,
-      void* stream_handle = nullptr);
-
   std::vector<std::string> get_call_spec();
   void load_constants(
       std::unordered_map<std::string, at::Tensor>& constants_map,

@@ -171,9 +171,10 @@ std::vector<at::Tensor> AOTIModelContainerRunner::boxed_run(
 
 // inputs and outputs are flattened, used for calling from aten
 // tensor to libtorch_free tensor
-std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
+std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
     std::vector<at::Tensor>&& inputs,
-    void* stream_handle) {
+    void* stream_handle,
+    std::function<void(void*)> deleter) {
   if (!flattened_run_func_) {
     throw std::runtime_error(
         "AOTInductorModelContainerFlattenedRun is only available in the libtorch-free mode.");
@@ -233,15 +234,6 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
     c10::TensorOptions options = c10::TensorOptions().device(device).dtype(
         static_cast<c10::ScalarType>(std::get<4>(*tuple)));
 
-    std::function<void(void*)> deleter;
-    if (device.is_cpu()) {
-      deleter = [](void* ptr) { free(ptr); };
-    } else if (device.is_cuda()) {
-#ifdef USE_CUDA
-      deleter = [](void* ptr) { cudaFree(ptr); };
-#endif
-    }
-
     result.push_back(at::for_blob(std::get<0>(*tuple), sizes)
                          .strides(strides)
                          .storage_offset(std::get<7>(*tuple))
@@ -252,6 +244,13 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
     delete tuple;
   }
   return result;
+}
+
+std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
+    std::vector<at::Tensor>&& inputs,
+    void* stream_handle) {
+  return flattened_run_impl(
+      std::move(inputs), stream_handle, [](void* ptr) { free(ptr); });
 }
 
 std::unordered_map<std::string, std::string> AOTIModelContainerRunner::
