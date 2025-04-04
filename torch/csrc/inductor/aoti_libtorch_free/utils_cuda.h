@@ -1,6 +1,7 @@
 #pragma once
 #ifdef USE_CUDA
 
+#include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
