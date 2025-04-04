@@ -218,7 +218,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
                     os.path.join(
                         csrc_root,
                         "cuda",
-                        "c_shim_cuda.cpp",
+                        "c_shim_cuda.cu",
                     ),
                 ]:
                     with open(file) as f:

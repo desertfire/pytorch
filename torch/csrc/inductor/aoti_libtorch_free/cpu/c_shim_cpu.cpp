@@ -9,21 +9,6 @@
 #include <openblas/cblas.h>
 #endif
 
-extern "C" void sgemm_(
-    char* transa,
-    char* transb,
-    int* m,
-    int* n,
-    int* k,
-    float* alpha,
-    float* a,
-    int* lda,
-    float* b,
-    int* ldb,
-    float* beta,
-    float* c,
-    int* ldc);
-
 AOTITorchError aoti_torch_cpu_addmm_out(
     AtenTensorHandle out_handle,
     AtenTensorHandle self_handle,
@@ -92,60 +77,74 @@ AOTITorchError aoti_torch_cpu_addmm_out(
     //  Hack it here
     for (int64_t i = 0; i < m; i++) {
       memcpy(
-          (float*)out.data_ptr() + i * n, self.data_ptr(), n * sizeof(float));
+          static_cast<float*>(out.data_ptr()) + i * n,
+          self.data_ptr(),
+          n * sizeof(float));
     }
   }
 
-  // Get pointers to the raw data
+  float* self_ptr = static_cast<float*>(self.data_ptr());
   float* out_ptr = static_cast<float*>(out.data_ptr());
   float* mat1_ptr = static_cast<float*>(mat1.data_ptr());
   float* mat2_ptr = static_cast<float*>(mat2.data_ptr());
 
-  // BLAS parameters
-  char transa = 'n'; // No transpose for mat1
-  char transb = 'n'; // No transpose for mat2
-  int m_int = static_cast<int>(m);
-  int n_int = static_cast<int>(n);
-  int k_int = static_cast<int>(k);
-  float alpha_val = alpha; // Coefficient for mat1 @ mat2
-  float beta_val = beta; // Coefficient for self
-  int lda = static_cast<int>(k); // Leading dimension of mat1
-  int ldb = static_cast<int>(n); // Leading dimension of mat2
-  int ldc = static_cast<int>(n); // Leading dimension of out
+  /*
 
   for (int i = 0; i < m; i++) {
-    for (int j = 0; j < n; j++) {
-      float tmp = 0;
-      for (int kk = 0; kk < k; kk++) {
-        tmp += mat1_ptr[i * m + kk] * mat2_ptr[kk * n + j];
-      }
-      out_ptr[i * n + j] = tmp * alpha_val + beta_val * out_ptr[i * n + j];
+    for (int kk = 0; kk < k; kk++) {
+      std::cout << mat1_ptr[i * k + kk] << " ";
     }
+    std::cout << std::endl << std::endl;
   }
 
-  /*
-    // Call SGEMM directly
-    sgemm_(
-        &transa,
-        &transb,
-        &m_int,
-        &n_int,
-        &k_int,
-        &alpha_val,
-        mat1_ptr,
-        &lda,
-        mat2_ptr,
-        &ldb,
-        &beta_val,
-        out_ptr,
-        &ldc);
-        */
+  for (int kk = 0; kk < k; kk++) {
+    for (int j = 0; j < n; j++) {
+      std::cout << mat2_ptr[kk * n + j] << " ";
+    }
+    std::cout << std::endl << std::endl;
+  }
+
+  for (int kk = 0; kk < 1; kk++) {
+    for (int j = 0; j < n; j++) {
+      std::cout << self_ptr[kk * n + j] << " ";
+    }
+    std::cout << std::endl << std::endl;
+  }
+
+
+   for (int i = 0; i < m; i++) {
+     for (int j = 0; j < n; j++) {
+       float tmp = 0;
+       for (int kk = 0; kk < k; kk++) {
+         tmp += mat1_ptr[i * k + kk] * mat2_ptr[kk * n + j];
+       }
+       out_ptr[i * n + j] = tmp * alpha + beta * self_ptr[j];
+     }
+   }
+  */
+
+  cblas_sgemm(
+      CblasRowMajor, // Matrix storage order
+      CblasNoTrans, // Don't transpose A
+      CblasTrans, // Weights are transposed. How do we know the weights are
+                  // actually transposed?
+      m, // Rows of A and C
+      n, // Columns of B and C
+      k, // Columns of A and rows of B
+      alpha, // Scalar multiplier
+      static_cast<const float*>(mat1.data_ptr()), // Matrix A data
+      k, // Leading dimension of A
+      static_cast<const float*>(mat2.data_ptr()), // Matrix B data
+      k, // Leading dimension of B
+      beta, // Scalar multiplier for C
+      static_cast<float*>(out.data_ptr()), // Matrix C data
+      n); // Leading dimension of C
 
   /*
-  // If out wasn't contiguous, copy the buffer back
-  if (!out_is_contiguous) {
-    out.copy_(out);
-  }
+    // If out wasn't contiguous, copy the buffer back
+    if (!out_is_contiguous) {
+      out.copy_(out);
+    }
   */
 
   return 0;

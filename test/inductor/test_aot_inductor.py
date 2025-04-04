@@ -127,14 +127,14 @@ class AOTInductorTestsTemplate:
         class Model(torch.nn.Module):
             def __init__(self) -> None:
                 super().__init__()
-                self.linear = torch.nn.Linear(10, 10)
+                self.linear = torch.nn.Linear(2, 2)
 
-            def forward(self, y):
+            def forward(self, x, y):
                 return self.linear(y)
 
         example_inputs = (
-            # torch.zeros(10, 10, device=self.device),
-            torch.eye(10, 10, device=self.device),
+            torch.randn(10, 2, device=self.device),
+            torch.ones(2, 2, device=self.device),
         )
         model = Model()
         self.check_model(model, example_inputs)

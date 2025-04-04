@@ -70,7 +70,7 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
 
 
 test_list_cpu = {
-    #"test_simple",
+    "test_simple",
     "test_cos",
 }
 
