@@ -6,10 +6,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-AOTITorchError aoti_torch_cuda_mm_out(
+AOTITorchError aoti_torch_cuda_addmm_out(
     AtenTensorHandle out,
     AtenTensorHandle self,
-    AtenTensorHandle mat2);
+    AtenTensorHandle mat1,
+    AtenTensorHandle mat2,
+    double beta,
+    double alpha);
 
 #ifdef __cplusplus
 } // extern "C"

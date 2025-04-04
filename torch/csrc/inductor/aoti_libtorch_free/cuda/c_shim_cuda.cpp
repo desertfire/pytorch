@@ -1,23 +1,11 @@
 #ifdef USE_CUDA
 #include <cublas_v2.h>
+#include <cuda.h>
 #include <cuda_runtime.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/cuda/c_shim_cuda.h>
 
 namespace aoti::libtorch_free {
 namespace {
-
-// CUDA kernel for bias addition
-__global__ void add_bias(
-    float* out,
-    const float* bias,
-    int batch_size,
-    int out_features) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < batch_size * out_features) {
-    int feature_idx = idx % out_features;
-    out[idx] += bias[feature_idx];
-  }
-}
 
 void sgemm_cublas(
     SlimTensor& out,
@@ -35,7 +23,18 @@ void sgemm_cublas(
   int m = A.size(0);
   int k = A.size(1);
   int n = B.size(1);
-  float zero_beta = 0;
+
+  if (C.data_ptr() != out.data_ptr()) {
+    // HACK
+    for (int64_t i = 0; i < m; i++) {
+      cudaMemcpy(
+          static_cast<float*>(out.data_ptr()) + i * n,
+          C.data_ptr(),
+          n * sizeof(float),
+          cudaMemcpyDeviceToDevice);
+    }
+  }
+
   cublasSgemm(
       handle,
       CUBLAS_OP_T,
@@ -48,15 +47,28 @@ void sgemm_cublas(
       n,
       static_cast<const float*>(A.data_ptr()),
       k,
-      &zero_beta, // Compute mm only; add bias in the next step
+      &beta, // Compute mm only; add bias in the next step
       static_cast<float*>(out.data_ptr()),
       n);
 
-  if (beta != 0.0f) {
-    dim3 block(256);
-    dim3 grid((m * n + block.x - 1) / block.x);
-    add_bias<<<grid, block>>>(static_cast<float*>(out.data_ptr()), static_cast<float*>(C.data_ptr()), m, n);
+  /*
+  // Compiling .cu files needs extra work to codecache.py and cpp_builder.py
+  __global__ void add_bias_kernel(float* output, const float* bias, int
+  batch_size, int out_features) {
+      // Calculate global thread ID
+      int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+      // Check if within bounds
+      if (idx < batch_size * out_features) {
+          // Get row and column indices
+          int row = idx / out_features;
+          int col = idx % out_features;
+
+          // Add bias[col] to output[row][col]
+          output[idx] += bias[col];
+      }
   }
+  */
 
   cublasDestroy(handle);
 }
@@ -87,10 +99,11 @@ AOTITorchError aoti_torch_cuda_addmm_out(
     AtenTensorHandle mat2,
     double beta,
     double alpha) {
-  if (self->dim() == 2 && mat2->dim() == 2 &&
+  if (out->dtype() == aoti::libtorch_free::ScalarType::_float32 &&
       self->dtype() == aoti::libtorch_free::ScalarType::_float32 &&
+      mat1->dtype() == aoti::libtorch_free::ScalarType::_float32 &&
       mat2->dtype() == aoti::libtorch_free::ScalarType::_float32) {
-    aoti::libtorch_free::sgemm_cublas(*out_handle, *mat1, *mat2, *self, beta, alpha);
+    aoti::libtorch_free::sgemm_cublas(*out, *mat1, *mat2, *self, beta, alpha);
   } else {
     throw std::runtime_error("matmul only supports float32 tensors");
   }
