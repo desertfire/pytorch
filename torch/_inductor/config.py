@@ -1274,6 +1274,9 @@ class aot_inductor:
         os.environ.get("AOT_INDUCTOR_LIBTORCH_FREE", "0") == "1"
     )
 
+    # Embed generated .cubin files into the .so
+    embed_cubin: bool = True
+
 
 class cuda:
     # CUDA arch to use for CUDA template kernel compilation.
