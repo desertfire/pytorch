@@ -10,7 +10,7 @@
 #include <torch/csrc/inductor/aoti_libtorch_free/utils.h>
 
 #ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
 #endif
 
 namespace aoti::libtorch_free {

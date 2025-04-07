@@ -5,7 +5,7 @@
 #include <torch/csrc/inductor/aoti_libtorch_free/package_loader.h>
 #include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
 #ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
 #endif // USE_CUDA
 
 namespace {

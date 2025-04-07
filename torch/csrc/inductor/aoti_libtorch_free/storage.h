@@ -6,7 +6,7 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
 #endif
 
 #include <torch/csrc/inductor/aoti_libtorch_free/device.h>
