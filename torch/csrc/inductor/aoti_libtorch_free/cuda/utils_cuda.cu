@@ -1,4 +1,4 @@
-#include <torch/csrc/inductor/aoti_libtorch_free/utils_cuda.h>
+#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
 
 namespace aoti::libtorch_free{
 namespace {

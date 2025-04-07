@@ -212,11 +212,6 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 for file in [
                     os.path.join(
                         csrc_root,
-                        "cpu",
-                        "c_shim_cpu.cpp",
-                    ),
-                    os.path.join(
-                        csrc_root,
                         "cuda",
                         "c_shim_cuda.cpp",
                     ),

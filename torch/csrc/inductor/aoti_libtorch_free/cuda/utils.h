@@ -21,6 +21,7 @@ inline void throw_cuda_error(cudaError_t err) {
 // Used in destructor because can't throw in destructor
 inline void print_cuda_error(cudaError_t err) {
   if (err != cudaSuccess) {
+    // NOLINTNEXTLINE(performance-avoid-endl)
     std::cerr << cudaGetErrorString(err) << std::endl;
   }
 }
@@ -74,7 +75,7 @@ inline void set_current_stream(int32_t device, cudaStream_t stream) {
 
 class AOTICudaStreamGuard {
  public:
-  AOTICudaStreamGuard(cudaStream_t stream, int32_t device_index)
+  AOTICudaStreamGuard(cudaStream_t stream, int32_t device_index = 0)
       : stream_(stream), device_(device_index) {
     // Save original device
     throw_cuda_error(cudaGetDevice(&prev_device_));
@@ -115,8 +116,7 @@ class AOTICudaStreamGuard {
 
 class AOTICudaStream {
  public:
-  AOTICudaStream(int32_t device_index = 0)
-      : device_index_(device_index), stream_(nullptr) {
+  AOTICudaStream(int32_t device_index = 0) : device_index_(device_index) {
     throw_cuda_error(cudaSetDevice(device_index_));
     throw_cuda_error(cudaStreamCreate(&stream_));
   }
@@ -137,7 +137,7 @@ class AOTICudaStream {
   }
 
   // Move assignment
-  AOTICudaStream& operator=(AOTICudaStream&& other) noexcept {
+  AOTICudaStream& operator=(AOTICudaStream&& other) {
     if (this != &other) {
       if (stream_) {
         throw_cuda_error(cudaStreamDestroy(stream_));
