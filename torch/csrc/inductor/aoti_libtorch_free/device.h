@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 // Similar to c10/core/DeviceType.h for convenience but doesn't guarantee to
 // always be in sync with it
@@ -35,28 +36,40 @@ enum class DeviceType : int8_t {
 #undef DEFINE_ENUM
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+constexpr const char* DEVICE_TYPE_TO_STR[] = {
+#define DEFINE_ENUM(value) #value,
+    FORALL_DEVICE_TYPES(DEFINE_ENUM)
+#undef DEFINE_ENUM
+};
+
 // Device struct that encapsulates both device type and device index
 struct Device {
-  DeviceType type;
-  DeviceIndex index;
+  DeviceType type_;
+  DeviceIndex index_;
 
-  Device() : type(DeviceType::cpu), index(0) {}
-  Device(DeviceType t, DeviceIndex i) : type(t), index(i) {}
+  Device() : type_(DeviceType::cpu), index_(0) {}
+  Device(DeviceType t, DeviceIndex i) : type_(t), index_(i) {}
 
   bool is_cpu() const {
-    return type == DeviceType::cpu;
+    return type_ == DeviceType::cpu;
   }
   bool is_cuda() const {
-    return type == DeviceType::cuda;
+    return type_ == DeviceType::cuda;
   }
 
   // Equality operators
   bool operator==(const Device& other) const {
-    return type == other.type && index == other.index;
+    return type_ == other.type_ && index_ == other.index_;
   }
 
   bool operator!=(const Device& other) const {
     return !(*this == other);
+  }
+
+  std::string str() const {
+    return std::string(DEVICE_TYPE_TO_STR[static_cast<size_t>(type_)]) +
+        std::string(":") + std::to_string(index_);
   }
 };
 
