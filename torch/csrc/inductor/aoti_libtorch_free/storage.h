@@ -47,13 +47,13 @@ template <>
 struct DeviceTraits<DeviceType::cuda> {
   static void* allocate(size_t nbytes, const Device& device) {
     void* data = nullptr;
-    AOTICudaGuard guard(device.index);
+    AOTICudaGuard guard(device.index_);
     throw_cuda_error(cudaMalloc(&data, nbytes));
     return data;
   }
 
   static void free(void* ptr, const Device& device) {
-    AOTICudaGuard guard(device.index);
+    AOTICudaGuard guard(device.index_);
     print_cuda_error(cudaFree(ptr));
   }
 
@@ -70,7 +70,7 @@ struct DeviceTraits<DeviceType::cuda> {
     } else if (dst_device.is_cpu()) {
       direction = cudaMemcpyDeviceToHost;
     } else {
-      if (src_device.index != dst_device.index) {
+      if (src_device.index_ != dst_device.index_) {
         throw std::runtime_error(
             "CUDA memcpy failed: src_device_index != dst_device_index");
       }
@@ -170,11 +170,11 @@ class MaybeOwningStorage {
   }
 
   DeviceType device_type() const {
-    return device_.type;
+    return device_.type_;
   }
 
   DeviceIndex device_index() const {
-    return device_.index;
+    return device_.index_;
   }
 
   void unsafe_set_to_non_owning() {
