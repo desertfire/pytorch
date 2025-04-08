@@ -31,7 +31,7 @@ inductor_fallback_ops = {
     "aten._flash_attention_forward.default",
     "aten._fused_moving_avg_obs_fq_helper_functional.default",
     "aten._fused_moving_avg_obs_fq_helper.default",
-    "aten._histogramdd_from_bin_cts.default",
+    "aten._histogramdd_from_bin_cts.default",   
     "aten._int_mm.out",
     "aten._pdist_backward.default",
     "aten._pdist_forward.default",
