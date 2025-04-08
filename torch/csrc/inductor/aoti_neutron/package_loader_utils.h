@@ -6,7 +6,7 @@
 
 // Common util funtions for operations on generated model package, no mater if
 // the package file is from the stardard AOTI or the libtorch-free AOTI
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 #ifdef _WIN32
 const std::string k_separator = "\\";
 #else
@@ -30,4 +30,4 @@ nlohmann::json load_json_file(const std::string& json_path);
 
 std::unordered_map<std::string, std::string> load_metadata(
     const std::string& path);
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron

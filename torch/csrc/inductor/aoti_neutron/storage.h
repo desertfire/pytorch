@@ -6,13 +6,13 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 #endif
 
-#include <torch/csrc/inductor/aoti_libtorch_free/device.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/non_atomic_shared_ptr.h>
+#include <torch/csrc/inductor/aoti_neutron/device.h>
+#include <torch/csrc/inductor/aoti_neutron/non_atomic_shared_ptr.h>
 
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 
 // Device traits template for device-specific operations
 template <DeviceType D>
@@ -195,4 +195,4 @@ class MaybeOwningStorage {
 
 using Storage = NonAtomicSharedPtr<MaybeOwningStorage>;
 
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron

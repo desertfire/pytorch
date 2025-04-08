@@ -2,16 +2,16 @@
 
 // This header mimics APIs in aoti_torch/c/shim.h in a libtorch-free way.
 //
-#include <torch/csrc/inductor/aoti_libtorch_free/layout.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/scalar_type.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/slim_tensor.h>
+#include <torch/csrc/inductor/aoti_neutron/layout.h>
+#include <torch/csrc/inductor/aoti_neutron/scalar_type.h>
+#include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
 
 // The following files are implemented in a header-only way
 #include <c10/util/BFloat16.h>
 // #include <c10/util/Half.h>
 
-using AtenTensorOpaque = aoti::libtorch_free::SlimTensor;
-using AtenTensorHandle = aoti::libtorch_free::SlimTensor*;
+using AtenTensorOpaque = torch::neutron::SlimTensor;
+using AtenTensorHandle = torch::neutron::SlimTensor*;
 
 // AOTIProxyExecutorHandle isn't supported in libtorch-free mode.
 // Just defining it to void* to make the code compile
@@ -120,13 +120,13 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
     int64_t opaque_metadata_size) {
   IntArrayRef sizes(sizes_ptr, ndim);
   IntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new aoti::libtorch_free::SlimTensor(create_tensor_from_blob(
+  *ret_new_tensor = new torch::neutron::SlimTensor(create_tensor_from_blob(
       data,
       sizes,
       strides,
-      static_cast<aoti::libtorch_free::ScalarType>(dtype),
-      {static_cast<aoti::libtorch_free::DeviceType>(device_type),
-       static_cast<aoti::libtorch_free::DeviceIndex>(device_index)},
+      static_cast<torch::neutron::ScalarType>(dtype),
+      {static_cast<torch::neutron::DeviceType>(device_type),
+       static_cast<torch::neutron::DeviceIndex>(device_index)},
       storage_offset));
   return AOTI_TORCH_SUCCESS;
 }
@@ -140,12 +140,12 @@ inline AOTITorchError aoti_torch_empty_strided(
     AtenTensorHandle* ret_new_tensor) {
   IntArrayRef sizes(sizes_ptr, ndim);
   IntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new aoti::libtorch_free::SlimTensor(create_empty_tensor(
+  *ret_new_tensor = new torch::neutron::SlimTensor(create_empty_tensor(
       sizes,
       strides,
-      static_cast<aoti::libtorch_free::ScalarType>(dtype),
-      {static_cast<aoti::libtorch_free::DeviceType>(device_type),
-       static_cast<aoti::libtorch_free::DeviceIndex>(device_index)},
+      static_cast<torch::neutron::ScalarType>(dtype),
+      {static_cast<torch::neutron::DeviceType>(device_type),
+       static_cast<torch::neutron::DeviceIndex>(device_index)},
       0));
   return AOTI_TORCH_SUCCESS;
 }
@@ -159,7 +159,7 @@ inline AOTITorchError aoti_torch__reinterpret_tensor(
     AtenTensorHandle* ret_new_tensor) {
   IntArrayRef sizes(sizes_ptr, ndim);
   IntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new aoti::libtorch_free::SlimTensor(
+  *ret_new_tensor = new torch::neutron::SlimTensor(
       self->storage(),
       sizes,
       strides,
@@ -175,7 +175,7 @@ inline AOTITorchError aoti_torch_as_strided(
     AtenTensorHandle* ret) {
   IntArrayRef sizes(sizes_ptr, self->dim());
   IntArrayRef strides(strides_ptr, self->dim());
-  *ret = new aoti::libtorch_free::SlimTensor(
+  *ret = new torch::neutron::SlimTensor(
       self->storage(), sizes, strides, self->dtype(), self->storage_offset());
   return AOTI_TORCH_SUCCESS;
 }
@@ -183,14 +183,14 @@ inline AOTITorchError aoti_torch_as_strided(
 inline AOTITorchError aoti_torch_clone(
     AtenTensorHandle self,
     AtenTensorHandle* ret) {
-  aoti::libtorch_free::SlimTensor tmp_tensor = create_empty_tensor(
+  torch::neutron::SlimTensor tmp_tensor = create_empty_tensor(
       self->sizes(),
       self->strides(),
       self->dtype(),
       {self->device_type(), self->device_index()},
       0);
   tmp_tensor.copy_(*self);
-  *ret = new aoti::libtorch_free::SlimTensor(tmp_tensor);
+  *ret = new torch::neutron::SlimTensor(tmp_tensor);
   return AOTI_TORCH_SUCCESS;
 }
 
@@ -205,7 +205,7 @@ inline AOTITorchError aoti_torch_clone_preserve_strides(
     }
     needed_size += (self->size(i) - 1) * self->stride(i);
   }
-  aoti::libtorch_free::SlimTensor tmp_tensor = *self;
+  torch::neutron::SlimTensor tmp_tensor = *self;
   tmp_tensor.as_strided_({needed_size}, {1}, 0);
   aoti_torch_clone(&tmp_tensor, ret);
   (*ret)->as_strided_(self->sizes(), self->strides(), self->storage_offset());

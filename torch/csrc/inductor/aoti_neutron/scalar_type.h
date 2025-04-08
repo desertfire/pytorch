@@ -52,7 +52,7 @@
   A(int7) B(1) /* 43 */
 // clang-format on
 
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 enum class ScalarType : int8_t {
 #define DEFINE_A(value) _##value,
 #define DEFINE_B(value)
@@ -69,16 +69,16 @@ constexpr int32_t SCALAR_TYPE_TO_BYTESIZE[] = {
 #undef DEFINE_A
 #undef DEFINE_B
 };
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // Define all the aoti_torch_dtype_*() functions.
-#define DEFINE_A(value)                                        \
-  inline int32_t aoti_torch_dtype_##value() {                  \
-    return (int32_t)aoti::libtorch_free::ScalarType::_##value; \
+#define DEFINE_A(value)                                   \
+  inline int32_t aoti_torch_dtype_##value() {             \
+    return (int32_t)torch::neutron::ScalarType::_##value; \
   }
 #define DEFINE_B(value)
 FORALL_SCALAR_TYPES(DEFINE_A, DEFINE_B)

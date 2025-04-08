@@ -165,7 +165,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
         # present.
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
-            f"torch/csrc/inductor/aoti_libtorch_free/{self.device}/c_shim_{self.device}.h"
+            f"torch/csrc/inductor/aoti_neutron/{self.device}/c_shim_{self.device}.h"
             if config.aot_inductor.libtorch_free_codegen
             else f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
@@ -207,7 +207,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
                     "..",
                     "csrc",
                     "inductor",
-                    "aoti_libtorch_free",
+                    "aoti_neutron",
                 )
                 for file in [
                     os.path.join(
@@ -954,7 +954,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
             aot_mode_decls.writeline("} // namespace torch::aot_inductor")
             aot_mode_decls.writeline("using namespace torch::aot_inductor;")
             if config.aot_inductor.libtorch_free_codegen:
-                aot_mode_decls.writeline("using namespace aoti::libtorch_free;")
+                aot_mode_decls.writeline("using namespace torch::neutron;")
 
         self.prefix = cache_decls = IndentedBuffer()
         for dtype in self.used_cached_dtypes:

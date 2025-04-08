@@ -1,7 +1,7 @@
 #if !defined(C10_MOBILE) && !defined(ANDROID)
 #include <ATen/DynamicLibrary.h>
 
-#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
+#include <torch/csrc/inductor/aoti_neutron/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
 #include <torch/csrc/inductor/aoti_torch/oss_proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/tensor_converter.h>
@@ -169,8 +169,8 @@ std::vector<at::Tensor> AOTIModelContainerRunner::boxed_run(
   return run_impl(input_handles, stream_handle);
 }
 
-// inputs and outputs are flattened, used for calling from aten
-// tensor to libtorch_free tensor
+// inputs and outputs are flattened, used for calling from
+// AtenTensor to SlimTensor
 std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle,

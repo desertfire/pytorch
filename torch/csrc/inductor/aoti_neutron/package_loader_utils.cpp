@@ -1,5 +1,5 @@
 #include <miniz.h>
-#include <torch/csrc/inductor/aoti_libtorch_free/package_loader_utils.h>
+#include <torch/csrc/inductor/aoti_neutron/package_loader_utils.h>
 #include <fstream>
 
 #ifdef _WIN32
@@ -21,7 +21,7 @@ namespace fs = std::filesystem;
 
 #endif // _WIN32
 
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 namespace {
 std::string create_temp_dir() {
 #ifdef _WIN32
@@ -265,4 +265,4 @@ std::unordered_map<std::string, std::string> load_metadata(
   }
   return metadata;
 }
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron

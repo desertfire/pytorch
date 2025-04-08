@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <torch/csrc/inductor/aoti_libtorch_free/c_shim.h>
+#include <torch/csrc/inductor/aoti_neutron/c_shim.h>
 
 // Define AOTI_LIBTORCH_FREE here to avoid redefined symbols seen by linter
 #ifndef AOTI_LIBTORCH_FREE
@@ -11,10 +11,10 @@
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
 
 #ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 #endif
 
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 namespace {
 std::vector<SlimTensor*> unsafe_alloc_new_handles_from_tensors(
     const std::vector<SlimTensor>& tensors) {
@@ -57,7 +57,7 @@ std::vector<SlimTensor> alloc_tensors_by_stealing_from_handles(
 
 class SlimTensorRunner : public torch::aot_inductor::AOTInductorModelContainer {
  public:
-  SlimTensorRunner(const aoti::libtorch_free::Device& device)
+  SlimTensorRunner(const torch::neutron::Device& device)
       : torch::aot_inductor::AOTInductorModelContainer(1, device.str()) {}
 
   std::vector<SlimTensor> run(const std::vector<SlimTensor>& inputs) {
@@ -77,4 +77,4 @@ class SlimTensorRunner : public torch::aot_inductor::AOTInductorModelContainer {
     return alloc_tensors_by_stealing_from_handles(output_handles);
   }
 };
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron
