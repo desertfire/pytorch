@@ -1,6 +1,6 @@
-#include <torch/csrc/inductor/aoti_libtorch_free/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 
-namespace aoti::libtorch_free{
+namespace torch::neutron{
 namespace {
 // CUDA kernel for converting bfloat16 to float32
 __global__ void convertBF16ToFP32Kernel(
@@ -30,4 +30,4 @@ void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel) {
         "CUDA error: " + std::string(cudaGetErrorString(error)));
   }
 }
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron

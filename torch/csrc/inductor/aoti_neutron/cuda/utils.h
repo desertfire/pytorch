@@ -10,7 +10,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace aoti::libtorch_free {
+namespace torch::neutron {
 
 inline void throw_cuda_error(cudaError_t err) {
   if (err != cudaSuccess) {
@@ -158,5 +158,5 @@ class AOTICudaStream {
 };
 
 void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel);
-} // namespace aoti::libtorch_free
+} // namespace torch::neutron
 #endif // USE_CUDA
