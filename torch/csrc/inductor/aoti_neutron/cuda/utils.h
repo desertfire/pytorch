@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include <torch/csrc/inductor/aoti_neutron/device.h>
+
 namespace torch::neutron {
 
 inline void throw_cuda_error(cudaError_t err) {
@@ -36,6 +38,9 @@ class AOTICudaGuard {
       throw_cuda_error(cudaSetDevice(device_));
     }
   }
+
+  AOTICudaGuard(Device device)
+      : AOTICudaGuard(static_cast<int32_t>(device.index_)) {}
 
   AOTICudaGuard() = delete;
   AOTICudaGuard(const AOTICudaGuard&) = delete;
@@ -157,6 +162,14 @@ class AOTICudaStream {
   cudaStream_t stream_{nullptr};
 };
 
-void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel);
+#define CUDA_CHECK(EXPR)                                            \
+  do {                                                              \
+    const cudaError_t __err = EXPR;                                 \
+    if (__err != cudaSuccess) {                                     \
+      throw std::runtime_error(                                     \
+          "CUDA error: " + std::string(cudaGetErrorString(__err))); \
+    }                                                               \
+  } while (0)
+
 } // namespace torch::neutron
 #endif // USE_CUDA

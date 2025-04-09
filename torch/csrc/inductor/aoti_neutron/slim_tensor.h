@@ -10,6 +10,7 @@
 #include <torch/csrc/inductor/aoti_neutron/utils.h>
 
 #ifdef USE_CUDA
+#include <torch/csrc/inductor/aoti_neutron/cuda/type_conversion.h>
 #include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 #endif
 
@@ -101,6 +102,11 @@ class SlimTensor {
 
   void* data_ptr() const {
     return storage_->data();
+  }
+
+  bool is_contiguous() const {
+    // bogus, always return true for now
+    return true;
   }
 
   SlimTensor as_strided_(

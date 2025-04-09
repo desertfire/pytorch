@@ -7,6 +7,13 @@
 #endif
 #endif
 
+#include <c10/cuda/CUDAException.h>
+#include <c10/util/Exception.h>
+#include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
+#include <torch/csrc/inductor/aoti_neutron/utils.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/int4_mm.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+
 namespace torch::neutron {
 
 template <typename U, typename V>
@@ -922,8 +929,8 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
 #endif
 }
 
-
 template <
+    typename T,
     typename ALayout,
     typename BLayout,
     typename CLayout,
@@ -972,120 +979,54 @@ void launch_tinygemm_kernel(
       mTiles,
       nTiles,
       kTiles);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  // C10_CUDA_KERNEL_LAUNCH_CHECK()
 
   cudaFuncAttributes funcAttr;
 #if defined(USE_ROCM)
-  C10_CUDA_CHECK(cudaFuncGetAttributes(
+  CUDA_CHECK(cudaFuncGetAttributes(
       &funcAttr,
       (void *)func
   ));
 #else
-  C10_CUDA_CHECK(cudaFuncGetAttributes(
+  CUDA_CHECK(cudaFuncGetAttributes(
       &funcAttr,
       func
   ));
 #endif
 }
 
-// FIXME: parallelize better, smem staging etc?
-template <int InnerKTiles>
-__global__ void matrix_to_m16n8k16_Bint4_layout(
-    // size [n][k / 2]
-    const at::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> in,
-    // size [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2]
-    at::PackedTensorAccessor32<int32_t, 4, at::RestrictPtrTraits> out) {
-  // int4 values are packed into int32 values, which require at least 8. Given
-  // m16n8k16 B layout requires 4 scalar values/lane, the minimum number of
-  // innermost k-tiles that we can use is 2.
-  static_assert(InnerKTiles >= 2 && isPowerOf2(InnerKTiles), "");
 
-#if defined(USE_ROCM)
-  constexpr int32_t kNTileSize = 16;
-#else
-  constexpr int32_t kNTileSize = 8;
-#endif
-  constexpr int32_t kKTileSize = 16;
-
-  // gridDim.x corresponds to the number of k-tiles divided by InnerKTiles
-  auto kOuterTile = blockIdx.x;
-  auto nTile = blockIdx.y;
-  auto t = threadIdx.x;
-
-  // Two k-tiles are packed into an int32 at a time
-#pragma unroll
-  for (int innerKTile = 0; innerKTile < InnerKTiles; innerKTile += 2) {
-    // n dimension that this lane loads from
-#if defined(USE_ROCM)
-    auto n0 = nTile * kNTileSize + (t % kNTileSize);
-#else
-    auto n0 = nTile * kNTileSize + (t / 4);
 #endif
 
-    bool n0Valid = n0 < in.size(0);
 
-    // Four uint8 are packed into an int32
-    int32_t ks[4];
-
-    auto kBase0 = (kOuterTile * InnerKTiles + innerKTile) * kKTileSize / 2;
-
-#if defined(USE_ROCM)
-    ks[0] = kBase0 + (t / kNTileSize) * 2;
-    ks[1] = ks[0] + 1;
-
-    auto kBase1 = kBase0 + kKTileSize / 2;
-    ks[2] = kBase1 + (t / kNTileSize) * 2;
-    ks[3] = ks[2] + 1;
-#else
-    ks[0] = kBase0 + t % 4;
-    ks[1] = ks[0] + 4;
-
-    auto kBase1 = kBase0 + kKTileSize / 2;
-    ks[2] = kBase1 + t % 4;
-    ks[3] = ks[2] + 4;
-#endif
-
-    auto pIn = &in[n0][0];
-
-    uint8_t v[4];
-#pragma unroll
-    for (int i = 0; i < 4; ++i) {
-      v[i] = (n0Valid && ks[i] < in.size(1)) ? pIn[ks[i]] : uint8_t(0);
-    }
-
-    // To clearly explain the packed result with 8 int4 values (4 uint8)
-    // into one int32, we use the follow figure:
-    // [n][k]     int32: v[0] v[1] v[2] v[3] v[4] v[5] v[6] v[7]
-    // [n][k / 2] uint8:    v[0]     v[1]      v[2]      v[3]
-    // When using int32 weight as input, the packed result is consisted of
-    // v[7] | v[5] | v[3] | v[1] | v[6] | v[4] | v[2] | v[0],
-    // which epuals to
-    // v[3]L | v[2]L | v[1]L | v[0]L | v[3]H | v[2]H | v[1]H | v[0]H
-    // when using uint8 weight as input.
-    int32_t pack = ((uint32_t)(v[3] & 0xF) << 28) |
-        ((uint32_t)(v[2] & 0xF) << 24) | ((uint32_t)(v[1] & 0xF) << 20) |
-        ((uint32_t)(v[0] & 0xF) << 16) | ((uint32_t)(v[3] & 0xF0) << 8) |
-        ((uint32_t)(v[2] & 0xF0) << 4) | ((uint32_t)(v[1] & 0xF0)) |
-        ((uint32_t)(v[0] & 0xF0) >> 4);
-
-    // inner k-tiles pack two at a time
-#if defined(USE_ROCM)
-    // The output tensor shape is [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2], which is specific to Nvidia
-    // But AMD needs [ceil(n / 16)][ceil(k / (InnerKTiles * 16))][64][InnerKTiles / 2]
-    // So construct the pointer accordingly
-    auto bPtr = out.data() +
-      ((nTile * out.size(1) * kWarpSize * (InnerKTiles / 2)) +
-        (kOuterTile * kWarpSize * (InnerKTiles / 2)) +
-          (t * (InnerKTiles / 2)) +
-            (innerKTile / 2));
-    *bPtr = pack;
-#else
-    out[nTile][kOuterTile][t][innerKTile / 2] = pack;
-#endif
-  }
+template<typename T>
+T empty_tensor(
+    IntArrayRef sizes,
+    IntArrayRef strides,
+    int dtype,
+    int device_type,
+    int device_index,
+    int64_t storage_offset) {
+  throw std::runtime_error("Invalid create_empty_tensor");
 }
 
-#endif
+template<>
+torch::neutron::SlimTensor empty_tensor(
+    IntArrayRef sizes,
+    IntArrayRef strides,
+    int dtype,
+    int device_type,
+    int device_index,
+    int64_t storage_offset) {
+  return create_empty_tensor(sizes, strides,
+    static_cast<torch::neutron::ScalarType>(dtype),
+    torch::neutron::Device{
+      static_cast<torch::neutron::DeviceType>(device_type),
+      device_index
+    },
+    storage_offset
+  );
+}
 
 template <typename T>
 T _weight_int4pack_mm_cuda(
@@ -1093,7 +1034,7 @@ T _weight_int4pack_mm_cuda(
     const T& B,
     int64_t qGroupSize,
     const T& qScaleAndZeros) {
-  c10::cuda::CUDAGuard g(A.device());
+  torch::neutron::AOTICudaGuard g(A.device());
 
   TORCH_CHECK(
       A.device() == B.device() && A.device() == qScaleAndZeros.device());
@@ -1135,12 +1076,12 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(B_innerKTiles == 2 || B_innerKTiles == 4 || B_innerKTiles == 8);
 
   // A is standard row major
-  TORCH_CHECK(A.dtype() == at::kBFloat16);
+  TORCH_CHECK(A.dtype() == torch::neutron::ScalarType::_bfloat16);
   TORCH_CHECK(A.is_contiguous());
   TORCH_CHECK(A.dim() == 2);
 
   // B has B_innerKTiles k-tiles in the innermost dimension
-  TORCH_CHECK(B.dtype() == at::kInt);
+  TORCH_CHECK(B.dtype() == torch::neutron::ScalarType::_int32);
   TORCH_CHECK(B.is_contiguous());
   TORCH_CHECK(B.dim() == 4);
   TORCH_CHECK(B.size(1) == k / (B_innerKTiles * kKTileSize));
@@ -1161,11 +1102,17 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(qScaleAndZeros.size(2) == 2);
 
   // Output is a standard row-major matrix
-  auto C_final = at::empty(
-      {m, n}, at::TensorOptions().dtype(at::kBFloat16).device(A.device()));
+  auto C_final = empty_tensor<torch::neutron::SlimTensor>(
+    {m, n},
+    {n, 1},
+    (int)torch::neutron::ScalarType::_bfloat16,
+    (int)torch::neutron::DeviceType::cuda,
+    0,
+    0
+  );
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 50700) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = torch::neutron::get_current_stream(0);
 #define RUN_GEMM(WARPS, K_TILES_PER_WARP, Q_GROUP_SIZE, REDUCE_TYPE) \
   do {                                                               \
     using ACLayout = ALayout_RM<REDUCE_TYPE>;                        \
@@ -1179,6 +1126,7 @@ T _weight_int4pack_mm_cuda(
         if constexpr (K_TILES_PER_WARP >= 2) {                       \
           using BLayout = BLayout_TC_int4<2, Q_GROUP_SIZE>;          \
           launch_tinygemm_kernel<                                    \
+              T, \
               ACLayout,                                              \
               BLayout,                                               \
               ACLayout,                                              \
@@ -1201,6 +1149,7 @@ T _weight_int4pack_mm_cuda(
         if constexpr (K_TILES_PER_WARP >= 4) {                       \
           using BLayout = BLayout_TC_int4<4, Q_GROUP_SIZE>;          \
           launch_tinygemm_kernel<                                    \
+          T, \
               ACLayout,                                              \
               BLayout,                                               \
               ACLayout,                                              \
@@ -1223,6 +1172,7 @@ T _weight_int4pack_mm_cuda(
         if constexpr (K_TILES_PER_WARP >= 8) {                       \
           using BLayout = BLayout_TC_int4<8, Q_GROUP_SIZE>;          \
           launch_tinygemm_kernel<                                    \
+          T, \
               ACLayout,                                              \
               BLayout,                                               \
               ACLayout,                                              \
@@ -1273,86 +1223,6 @@ T _weight_int4pack_mm_cuda(
 #endif
   TORCH_CHECK(false, "_weight_int4pack_mm_cuda is not available for build.")
   return C_final;
-}
-
-// input is [n][k / 2] (uint8 dtype)
-// output is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2] (int32 dtype)
-template<typename T>
-T _convert_weight_to_int4pack_cuda(
-    const T& in,
-    int64_t innerKTiles) {
-  c10::cuda::CUDAGuard g(in.device());
-
-  TORCH_CHECK(in.dim() == 2);
-  TORCH_CHECK(in.dtype() == at::kByte);
-  TORCH_CHECK(in.is_contiguous());
-
-  // At least 2 k-tiles need to be packed back to back in the innermost
-  // dimension, as the m16n8k16 tensor core tile presents 4 scalar values for
-  // the B matrix, but the minimum word size for the packed format is 4 bytes
-  // (int32). 4 inner K-tiles = 8 byte load, 8 inner k-tiles = 16 byte load
-  // which is the maximum vectorized load/store size
-  TORCH_CHECK(innerKTiles == 2 || innerKTiles == 4 || innerKTiles == 8);
-
-#if defined(USE_ROCM)
-  if (!isCDNA2orLater(in.device().index())) {
-    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on AMD gpu arch greater than or equal to CDNA2");
-  }
-#endif
-
-#if defined(USE_ROCM)
-  constexpr int32_t kNTileSize = 16;
-#else
-  constexpr int32_t kNTileSize = 8;
-#endif
-  constexpr int32_t kKTileSize = 16;
-
-  // GPT-FAST assumes nTileSize of 8 for quantized weight tensor.
-  // See https://github.com/pytorch-labs/gpt-fast/blob/091515ab5b06f91c0d6a3b92f9c27463f738cc9b/quantize.py#L510
-  // Torch dynamo also requires the torch ops has the same output shape for each device.
-  // See https://github.com/pytorch/pytorch/blob/ec284d3a74ec1863685febd53687d491fd99a161/torch/_meta_registrations.py#L3263
-  constexpr int32_t kNTileSizeTensor = 8;
-
-  auto nTiles = divUp(in.size(0), kNTileSize);
-  auto nTilesTensor = divUp(in.size(0), kNTileSizeTensor);
-
-  // k-tiles are packed back to back in the innermost dimension in order to
-  // allow for 4/8/16 byte loads
-  TORCH_CHECK(isEvenDivisor(in.size(1) * 2, innerKTiles * kKTileSize));
-  // kSuperTiles is the number of k-tiles assuming k is innerKTiles * kKTileSize
-  auto kSuperTiles = divUp(in.size(1) * 2, innerKTiles * kKTileSize);
-
-  // each block handles `innerKTiles` k-tiles.
-  // 2 k-tiles are a single int32
-  //
-  // We use the same shape for AMD gpus also to match the GPT-FAST spec.
-  // Will index it correctly when dereferencing the quantized weight tensor pointer.
-  auto out = at::empty(
-      {nTilesTensor, kSuperTiles, 32, innerKTiles / 2},
-      at::TensorOptions().dtype(at::kInt).device(in.device()));
-
-#if (defined(USE_ROCM) && ROCM_VERSION >= 50700) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
-  auto stream = at::cuda::getCurrentCUDAStream();
-  dim3 grid(kSuperTiles, nTiles);
-
-  if (innerKTiles == 2) {
-    matrix_to_m16n8k16_Bint4_layout<2><<<grid, kWarpSize, 0, stream>>>(
-        in.packed_accessor32<uint8_t, 2, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>());
-  } else if (innerKTiles == 4) {
-    matrix_to_m16n8k16_Bint4_layout<4><<<grid, kWarpSize, 0, stream>>>(
-        in.packed_accessor32<uint8_t, 2, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>());
-  } else if (innerKTiles == 8) {
-    matrix_to_m16n8k16_Bint4_layout<8><<<grid, kWarpSize, 0, stream>>>(
-        in.packed_accessor32<uint8_t, 2, at::RestrictPtrTraits>(),
-        out.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>());
-  }
-
-  return out;
-#endif
-  TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is not available for build.")
-  return out;
 }
 
 } // namespace torch::neutron

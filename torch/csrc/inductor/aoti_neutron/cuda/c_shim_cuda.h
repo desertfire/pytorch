@@ -14,13 +14,6 @@ AOTITorchError aoti_torch_cuda_addmm_out(
     double beta,
     double alpha);
 
-AOTITorchError aoti_torch_cuda__weight_int4pack_mm(
-    AtenTensorHandle self,
-    AtenTensorHandle mat2,
-    int64_t qGroupSize,
-    AtenTensorHandle qScaleAndZeros,
-    AtenTensorHandle* ret0);
-
 #ifdef __cplusplus
 } // extern "C"
 #endif

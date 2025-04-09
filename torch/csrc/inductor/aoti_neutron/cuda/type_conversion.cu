@@ -1,6 +1,11 @@
-#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+#ifdef USE_CUDA
 
-namespace torch::neutron{
+#include <cuda.h>
+#include <cuda_bf16.h>
+#include <cuda_runtime.h>
+#include <stdexcept>
+
+namespace torch::neutron {
 namespace {
 // CUDA kernel for converting bfloat16 to float32
 __global__ void convertBF16ToFP32Kernel(
@@ -31,3 +36,4 @@ void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel) {
   }
 }
 } // namespace torch::neutron
+#endif // USE_CUDA
