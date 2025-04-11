@@ -1507,6 +1507,10 @@ class CudaKernelParamCache:
 
 
 class AotCodeCompiler:
+    """
+    Compile files for AOTInductor
+    """
+
     @classmethod
     def compile(
         cls,
@@ -1850,6 +1854,36 @@ class AotCodeCompiler:
 
             log.debug("aot wrapper compilation command: %s", wrapper_compile_cmd)
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
+
+            cuda_utils_o = []
+            if config.aot_inductor.libtorch_free_codegen:
+                cuda_build_options = CppTorchDeviceOptions(
+                    compiler="nvcc",
+                    compile_only=True,
+                    **compile_command,
+                )
+                cuda_util_files = [
+                    str(
+                        Path(__file__).parent.parent
+                        / "csrc"
+                        / "inductor"
+                        / "aoti_neutron"
+                        / "cuda"
+                        / "_weight_int4pack_mm.cu"
+                    )
+                ]
+                generated_files.extend(cuda_util_files)
+                for file in cuda_util_files:
+                    cuda_builder = CppBuilder(
+                        name=file,
+                        sources=file,
+                        output_dir=str(wrapper_path_operator.parent),
+                        BuildOption=cuda_build_options,
+                    )
+                    if not config.aot_inductor.package_cpp_only:
+                        cuda_builder.build()
+                        cuda_utils_o.append(cuda_builder.get_target_file_path())
+
             if config.aot_inductor.package_cpp_only:
                 # Not doing the actual compilation here
                 compile_flags = str(
@@ -1962,7 +1996,14 @@ class AotCodeCompiler:
                 use_relative_path=use_relative_path,
             )
 
-            obj_srcs = [wrapper_o, kernel_o, consts_o, *gpu_kernels_o, *cubins_o]
+            obj_srcs = [
+                wrapper_o,
+                kernel_o,
+                consts_o,
+                *gpu_kernels_o,
+                *cubins_o,
+                *cuda_utils_o,
+            ]
             so_builder = CppBuilder(
                 name=output_name,
                 sources=obj_srcs,
@@ -2057,7 +2098,7 @@ class AotCodeCompiler:
 @clear_on_fresh_inductor_cache
 @functools.lru_cache
 def cpp_prefix_path() -> str:
-    path = Path(__file__).parent / "codegen/cpp_prefix.h"
+    path = Path(__file__).parent / "codegen" / "cpp_prefix.h"
     with path.open() as f:
         content = f.read()
         _, filename = write(

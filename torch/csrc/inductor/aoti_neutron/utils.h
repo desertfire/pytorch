@@ -24,10 +24,10 @@ using AOTITorchError = int32_t;
   }                                                       \
   return AOTI_TORCH_SUCCESS;
 
-using IntArrayRef = torch::aot_inductor::MiniArrayRef<const int64_t>;
+using MiniIntArrayRef = torch::aot_inductor::MiniArrayRef<const int64_t>;
 
 namespace torch::neutron {
-inline size_t compute_numel(IntArrayRef sizes) {
+inline size_t compute_numel(MiniIntArrayRef sizes) {
   int64_t numel = 1;
   for (auto& s : sizes) {
     numel *= s;
@@ -35,7 +35,7 @@ inline size_t compute_numel(IntArrayRef sizes) {
   return numel;
 }
 
-inline size_t compute_nbytes(IntArrayRef sizes, ScalarType dtype) {
+inline size_t compute_nbytes(MiniIntArrayRef sizes, ScalarType dtype) {
   return compute_numel(sizes) *
       SCALAR_TYPE_TO_BYTESIZE[static_cast<int32_t>(dtype)];
 }

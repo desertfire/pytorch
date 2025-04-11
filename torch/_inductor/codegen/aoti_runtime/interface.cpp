@@ -177,8 +177,8 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
   inputs.reserve(num_inputs);
   for (size_t i = 0; i < num_inputs; i++) {
     FlattenedTensor* tuple = reinterpret_cast<FlattenedTensor*>(input_handles[i]);
-    IntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
-    IntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    MiniIntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
+    MiniIntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
     inputs.push_back(new torch::neutron::SlimTensor(
       torch::neutron::create_tensor_from_blob(
         std::get<0>(*tuple),

@@ -92,9 +92,10 @@ copy_tests(
     test_list_cpu,
 )
 
-test_list_gcpu = {
+test_list_gpu = {
     "test_simple",
     "test_cos",
+    "test__weight_int4pack_mm_m_32_n_64_q_group_32_num_groups_1",
 }
 
 
@@ -113,7 +114,7 @@ copy_tests(
     AOTInductorTestsTemplate,
     AOTInductorTestLibtorchFreeGpu,
     f"{GPU_TYPE}_libtorch_free",
-    test_list_gcpu,
+    test_list_gpu,
 )
 
 

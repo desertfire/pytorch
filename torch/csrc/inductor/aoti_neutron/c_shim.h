@@ -118,8 +118,8 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
     int32_t layout,
     const uint8_t* opaque_metadata,
     int64_t opaque_metadata_size) {
-  IntArrayRef sizes(sizes_ptr, ndim);
-  IntArrayRef strides(strides_ptr, ndim);
+  MiniIntArrayRef sizes(sizes_ptr, ndim);
+  MiniIntArrayRef strides(strides_ptr, ndim);
   *ret_new_tensor = new torch::neutron::SlimTensor(create_tensor_from_blob(
       data,
       sizes,
@@ -138,8 +138,8 @@ inline AOTITorchError aoti_torch_empty_strided(
     int32_t device_type,
     int32_t device_index,
     AtenTensorHandle* ret_new_tensor) {
-  IntArrayRef sizes(sizes_ptr, ndim);
-  IntArrayRef strides(strides_ptr, ndim);
+  MiniIntArrayRef sizes(sizes_ptr, ndim);
+  MiniIntArrayRef strides(strides_ptr, ndim);
   *ret_new_tensor = new torch::neutron::SlimTensor(create_empty_tensor(
       sizes,
       strides,
@@ -157,8 +157,8 @@ inline AOTITorchError aoti_torch__reinterpret_tensor(
     const int64_t* strides_ptr,
     int64_t offset_increment,
     AtenTensorHandle* ret_new_tensor) {
-  IntArrayRef sizes(sizes_ptr, ndim);
-  IntArrayRef strides(strides_ptr, ndim);
+  MiniIntArrayRef sizes(sizes_ptr, ndim);
+  MiniIntArrayRef strides(strides_ptr, ndim);
   *ret_new_tensor = new torch::neutron::SlimTensor(
       self->storage(),
       sizes,
@@ -173,8 +173,8 @@ inline AOTITorchError aoti_torch_as_strided(
     const int64_t* sizes_ptr,
     const int64_t* strides_ptr,
     AtenTensorHandle* ret) {
-  IntArrayRef sizes(sizes_ptr, self->dim());
-  IntArrayRef strides(strides_ptr, self->dim());
+  MiniIntArrayRef sizes(sizes_ptr, self->dim());
+  MiniIntArrayRef strides(strides_ptr, self->dim());
   *ret = new torch::neutron::SlimTensor(
       self->storage(), sizes, strides, self->dtype(), self->storage_offset());
   return AOTI_TORCH_SUCCESS;

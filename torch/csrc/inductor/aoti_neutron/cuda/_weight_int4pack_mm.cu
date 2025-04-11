@@ -11,7 +11,7 @@
 #include <c10/util/Exception.h>
 #include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
 #include <torch/csrc/inductor/aoti_neutron/utils.h>
-#include <torch/csrc/inductor/aoti_neutron/cuda/int4_mm.h>
+#include <torch/csrc/inductor/aoti_neutron/cuda/_weight_int4pack_mm.h>
 #include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 
 namespace torch::neutron {
@@ -1001,8 +1001,8 @@ void launch_tinygemm_kernel(
 
 template<typename T>
 T empty_tensor(
-    IntArrayRef sizes,
-    IntArrayRef strides,
+    MiniMiniIntArrayRef sizes,
+    MiniMiniIntArrayRef strides,
     int dtype,
     int device_type,
     int device_index,
@@ -1012,8 +1012,8 @@ T empty_tensor(
 
 template<>
 torch::neutron::SlimTensor empty_tensor(
-    IntArrayRef sizes,
-    IntArrayRef strides,
+    MiniMiniIntArrayRef sizes,
+    MiniMiniIntArrayRef strides,
     int dtype,
     int device_type,
     int device_index,
