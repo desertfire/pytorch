@@ -12,7 +12,7 @@
 
 #include <torch/csrc/inductor/aoti_neutron/device.h>
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 
 inline void throw_cuda_error(cudaError_t err) {
   if (err != cudaSuccess) {
@@ -171,5 +171,5 @@ class AOTICudaStream {
     }                                                               \
   } while (0)
 
-} // namespace torch::neutron
+} // namespace torch::native::neutron
 #endif // USE_CUDA

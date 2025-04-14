@@ -5,7 +5,7 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 namespace {
 // CUDA kernel for converting bfloat16 to float32
 __global__ void convertBF16ToFP32Kernel(
@@ -35,5 +35,5 @@ void cuda_convertBFloat16ToFloat32(void* src, void* dst, size_t numel) {
         "CUDA error: " + std::string(cudaGetErrorString(error)));
   }
 }
-} // namespace torch::neutron
+} // namespace torch::native::neutron
 #endif // USE_CUDA

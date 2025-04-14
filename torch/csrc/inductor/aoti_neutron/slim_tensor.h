@@ -14,14 +14,14 @@
 #include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 #endif
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 
 class SlimTensor {
  public:
   SlimTensor(
       Storage&& storage,
-      MiniIntArrayRef sizes,
-      MiniIntArrayRef strides,
+      const MiniIntArrayRef& sizes,
+      const MiniIntArrayRef& strides,
       ScalarType dtype,
       int64_t storage_offset = 0)
       : storage_(std::move(storage)),
@@ -183,9 +183,16 @@ inline SlimTensor create_empty_tensor(
     MiniIntArrayRef strides,
     ScalarType dtype,
     const Device& device = CPU_DEVICE,
-    int64_t storage_offset = 0) {
+    int64_t storage_offset = 0,
+    bool own_sizes_and_strides = false) {
   size_t nbytes = compute_nbytes(sizes, dtype);
   Storage storage(new MaybeOwningStorage(nbytes, device));
+
+  if (own_sizes_and_strides) {
+    sizes = MiniIntArrayRef(sizes.data(), sizes.size(), true);
+    strides = MiniIntArrayRef(strides.data(), strides.size(), true);
+  }
+
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
 
@@ -202,4 +209,4 @@ inline SlimTensor create_tensor_from_blob(
   Storage storage(new MaybeOwningStorage(data, device));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
-} // namespace torch::neutron
+} // namespace torch::native::neutron

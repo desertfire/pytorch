@@ -258,7 +258,7 @@ std::string compile_so(
 
   std::string compile_flags_path = filename + "_compile_flags.json";
   const nlohmann::json compile_flags =
-      torch::neutron::load_json_file(compile_flags_path);
+      torch::native::neutron::load_json_file(compile_flags_path);
 
   auto [compile_cmd, output_o] =
       get_cpp_compile_command(filename, {cpp_path}, compile_flags);
@@ -266,7 +266,7 @@ std::string compile_so(
   std::string linker_flags_path =
       cpp_path.substr(0, lastindex) + "_linker_flags.json";
   const nlohmann::json linker_flags =
-      torch::neutron::load_json_file(linker_flags_path);
+      torch::native::neutron::load_json_file(linker_flags_path);
 
   auto [link_cmd, output_so] =
       get_cpp_compile_command(filename, {output_o, consts_path}, linker_flags);
@@ -445,7 +445,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
   size_t lastindex = cpp_path.find_last_of('.');
   std::string metadata_json_path =
       cpp_path.substr(0, lastindex) + "_metadata.json";
-  metadata_ = torch::neutron::load_metadata(metadata_json_path);
+  metadata_ = torch::native::neutron::load_metadata(metadata_json_path);
 
   // Construct the runner depending on the device information
   std::string device = metadata_["AOTI_DEVICE_KEY"];

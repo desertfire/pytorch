@@ -16,10 +16,13 @@ AOTITorchError aoti_torch_cpu_addmm_out(
     AtenTensorHandle mat2_handle,
     double beta,
     double alpha) {
-  auto out = *reinterpret_cast<torch::neutron::SlimTensor*>(out_handle);
-  auto self = *reinterpret_cast<torch::neutron::SlimTensor*>(self_handle);
-  auto mat1 = *reinterpret_cast<torch::neutron::SlimTensor*>(mat1_handle);
-  auto mat2 = *reinterpret_cast<torch::neutron::SlimTensor*>(mat2_handle);
+  auto out = *reinterpret_cast<torch::native::neutron::SlimTensor*>(out_handle);
+  auto self =
+      *reinterpret_cast<torch::native::neutron::SlimTensor*>(self_handle);
+  auto mat1 =
+      *reinterpret_cast<torch::native::neutron::SlimTensor*>(mat1_handle);
+  auto mat2 =
+      *reinterpret_cast<torch::native::neutron::SlimTensor*>(mat2_handle);
 
   int64_t m = mat1.size(0);
   int64_t k = mat1.size(1);
@@ -51,19 +54,19 @@ AOTITorchError aoti_torch_cpu_addmm_out(
 
   // Check data type
   AOTI_TORCH_CHECK(
-      self.dtype() == torch::neutron::ScalarType::_float32,
+      self.dtype() == torch::native::neutron::ScalarType::_float32,
       "Expected Float tensor, got ",
       self.dtype());
   AOTI_TORCH_CHECK(
-      mat1.dtype() == torch::neutron::ScalarType::_float32,
+      mat1.dtype() == torch::native::neutron::ScalarType::_float32,
       "Expected Float tensor, got ",
       mat1.dtype());
   AOTI_TORCH_CHECK(
-      mat2.dtype() == torch::neutron::ScalarType::_float32,
+      mat2.dtype() == torch::native::neutron::ScalarType::_float32,
       "Expected Float tensor, got ",
       mat2.dtype());
   AOTI_TORCH_CHECK(
-      out.dtype() == torch::neutron::ScalarType::_float32,
+      out.dtype() == torch::native::neutron::ScalarType::_float32,
       "Expected Float tensor, got ",
       out.dtype());
 

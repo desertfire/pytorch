@@ -14,7 +14,7 @@
 #include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
 #endif
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 namespace {
 std::vector<SlimTensor*> unsafe_alloc_new_handles_from_tensors(
     const std::vector<SlimTensor>& tensors) {
@@ -57,7 +57,7 @@ std::vector<SlimTensor> alloc_tensors_by_stealing_from_handles(
 
 class SlimTensorRunner : public torch::aot_inductor::AOTInductorModelContainer {
  public:
-  SlimTensorRunner(const torch::neutron::Device& device)
+  SlimTensorRunner(const torch::native::neutron::Device& device)
       : torch::aot_inductor::AOTInductorModelContainer(1, device.str()) {}
 
   std::vector<SlimTensor> run(const std::vector<SlimTensor>& inputs) {
@@ -77,4 +77,4 @@ class SlimTensorRunner : public torch::aot_inductor::AOTInductorModelContainer {
     return alloc_tensors_by_stealing_from_handles(output_handles);
   }
 };
-} // namespace torch::neutron
+} // namespace torch::native::neutron

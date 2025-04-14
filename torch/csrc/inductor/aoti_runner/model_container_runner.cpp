@@ -228,6 +228,10 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
         reinterpret_cast<FlattenedTensor*>(output_handles[i]);
     c10::IntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
     c10::IntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+
+    std::cout << "sizes: " << sizes << std::endl;
+    std::cout << "strides: " << strides << std::endl;
+
     c10::Device device = c10::Device(
         static_cast<c10::DeviceType>(std::get<5>(*tuple)),
         static_cast<c10::DeviceIndex>(std::get<6>(*tuple)));

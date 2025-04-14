@@ -21,7 +21,7 @@ namespace fs = std::filesystem;
 
 #endif // _WIN32
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 namespace {
 std::string create_temp_dir() {
 #ifdef _WIN32
@@ -265,4 +265,4 @@ std::unordered_map<std::string, std::string> load_metadata(
   }
   return metadata;
 }
-} // namespace torch::neutron
+} // namespace torch::native::neutron

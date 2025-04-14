@@ -14,22 +14,22 @@
   _(sparse_bsc) /* 6 */        \
   _(jagged) /* 7 */
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 enum class StrideType : int32_t {
 #define DEFINE_ENUM(value) value,
   FORALL_STRIDE_TYPES(DEFINE_ENUM)
 #undef DEFINE_ENUM
 };
-} // namespace torch::neutron
+} // namespace torch::native::neutron
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // Define all the aoti_torch_stride_type_*() functions.
-#define DEFINE_ENUM(value)                             \
-  inline int32_t aoti_torch_layout_##value() {         \
-    return (int32_t)torch::neutron::StrideType::value; \
+#define DEFINE_ENUM(value)                                     \
+  inline int32_t aoti_torch_layout_##value() {                 \
+    return (int32_t)torch::native::neutron::StrideType::value; \
   }
 FORALL_STRIDE_TYPES(DEFINE_ENUM)
 #undef DEFINE_ENUM

@@ -2,8 +2,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include <torch/csrc/inductor/aoti_neutron/array_ref.h>
 #include <torch/csrc/inductor/aoti_neutron/scalar_type.h>
-#include <torch/csrc/inductor/aoti_runtime/mini_array_ref.h>
 
 using AOTITorchError = int32_t;
 #define AOTI_TORCH_SUCCESS 0
@@ -24,9 +24,7 @@ using AOTITorchError = int32_t;
   }                                                       \
   return AOTI_TORCH_SUCCESS;
 
-using MiniIntArrayRef = torch::aot_inductor::MiniArrayRef<const int64_t>;
-
-namespace torch::neutron {
+namespace torch::native::neutron {
 inline size_t compute_numel(MiniIntArrayRef sizes) {
   int64_t numel = 1;
   for (auto& s : sizes) {
@@ -40,4 +38,4 @@ inline size_t compute_nbytes(MiniIntArrayRef sizes, ScalarType dtype) {
       SCALAR_TYPE_TO_BYTESIZE[static_cast<int32_t>(dtype)];
 }
 
-} // namespace torch::neutron
+} // namespace torch::native::neutron

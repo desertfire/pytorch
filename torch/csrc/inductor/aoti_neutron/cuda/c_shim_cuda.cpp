@@ -4,7 +4,7 @@
 #include <cuda_runtime.h>
 #include <torch/csrc/inductor/aoti_neutron/cuda/c_shim_cuda.h>
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 namespace {
 
 void sgemm_cublas(
@@ -74,7 +74,7 @@ void sgemm_cublas(
 }
 
 } // namespace
-} // namespace torch::neutron
+} // namespace torch::native::neutron
 
 /*
 AOTITorchError aoti_torch_cuda_mm_out(
@@ -82,9 +82,9 @@ AOTITorchError aoti_torch_cuda_mm_out(
     AtenTensorHandle self,
     AtenTensorHandle mat2) {
   if (self->dim() == 2 && mat2->dim() == 2 &&
-      self->dtype() == torch::neutron::ScalarType::_float32 &&
-      mat2->dtype() == torch::neutron::ScalarType::_float32) {
-    torch::neutron::sgemm_cublas(*out, *self, *mat2, *out, 0.0f, 1.0f);
+      self->dtype() == torch::native::neutron::ScalarType::_float32 &&
+      mat2->dtype() == torch::native::neutron::ScalarType::_float32) {
+    torch::native::neutron::sgemm_cublas(*out, *self, *mat2, *out, 0.0f, 1.0f);
   } else {
     throw std::runtime_error("matmul only supports float32 tensors");
   }
@@ -99,11 +99,12 @@ AOTITorchError aoti_torch_cuda_addmm_out(
     AtenTensorHandle mat2,
     double beta,
     double alpha) {
-  if (out->dtype() == torch::neutron::ScalarType::_float32 &&
-      self->dtype() == torch::neutron::ScalarType::_float32 &&
-      mat1->dtype() == torch::neutron::ScalarType::_float32 &&
-      mat2->dtype() == torch::neutron::ScalarType::_float32) {
-    torch::neutron::sgemm_cublas(*out, *mat1, *mat2, *self, beta, alpha);
+  if (out->dtype() == torch::native::neutron::ScalarType::_float32 &&
+      self->dtype() == torch::native::neutron::ScalarType::_float32 &&
+      mat1->dtype() == torch::native::neutron::ScalarType::_float32 &&
+      mat2->dtype() == torch::native::neutron::ScalarType::_float32) {
+    torch::native::neutron::sgemm_cublas(
+        *out, *mat1, *mat2, *self, beta, alpha);
   } else {
     throw std::runtime_error("matmul only supports float32 tensors");
   }

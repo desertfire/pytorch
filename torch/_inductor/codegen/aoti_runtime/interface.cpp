@@ -173,22 +173,23 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
       int64_t // storage_offset
       >;
 
-  std::vector<torch::neutron::SlimTensor*> inputs;
+  std::vector<torch::native::neutron::SlimTensor*> inputs;
   inputs.reserve(num_inputs);
+
   for (size_t i = 0; i < num_inputs; i++) {
     FlattenedTensor* tuple = reinterpret_cast<FlattenedTensor*>(input_handles[i]);
-    MiniIntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
-    MiniIntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
-    inputs.push_back(new torch::neutron::SlimTensor(
-      torch::neutron::create_tensor_from_blob(
+    torch::native::neutron::MiniIntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
+    torch::native::neutron::MiniIntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    inputs.push_back(new torch::native::neutron::SlimTensor(
+      torch::native::neutron::create_tensor_from_blob(
         std::get<0>(*tuple),
         sizes,
         strides,
         // dtype is 1-to-1 mapping for now
-        static_cast<torch::neutron::ScalarType>(std::get<4>(*tuple)),
+        static_cast<torch::native::neutron::ScalarType>(std::get<4>(*tuple)),
         // device_type is 1-to-1 mapping for now
-        {static_cast<torch::neutron::DeviceType>(std::get<5>(*tuple)),
-        static_cast<torch::neutron::DeviceIndex>(std::get<6>(*tuple))},
+        {static_cast<torch::native::neutron::DeviceType>(std::get<5>(*tuple)),
+        static_cast<torch::native::neutron::DeviceIndex>(std::get<6>(*tuple))},
         std::get<7>(*tuple))));
     delete tuple;
   }
@@ -198,14 +199,18 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
 
   CONVERT_EXCEPTION_TO_ERROR_CODE({
     AOTINoGradGuard guard;
-    std::vector<torch::neutron::SlimTensor*> outputs(num_outputs);
+    std::vector<torch::native::neutron::SlimTensor*> outputs(num_outputs);
 
     container->run_single_threaded(
         inputs.data(), outputs.data(), stream, proxy_executor_handle);
 
-    std::vector<torch::neutron::SlimTensor*> inputs;
     for (size_t i = 0; i < num_outputs; i++) {
-      torch::neutron::SlimTensor* tensor = outputs[i];
+      torch::native::neutron::SlimTensor* tensor = outputs[i];
+      std::cout << "tensor->sizes() = " << tensor->size(0) << std::endl;
+      std::cout << "tensor->sizes() = " << tensor->size(1) << std::endl;
+      std::cout << "tensor->strides() = " << tensor->stride(0) << std::endl;
+      std::cout << "tensor->strides() = " << tensor->stride(1) << std::endl;
+
       FlattenedTensor *tuple = new FlattenedTensor(
         tensor->data_ptr(),
         tensor->sizes().data(),
@@ -219,7 +224,7 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
       output_handles[i] = static_cast<void*>(tuple);
       // Set storage to non-owning and transfer storage ownership to at::Tensor
       tensor->storage()->unsafe_set_to_non_owning();
-      delete tensor;
+      //delete tensor;
     }
   })
 #else

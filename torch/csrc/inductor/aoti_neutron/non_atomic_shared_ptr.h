@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 
 template <typename T>
 class NonAtomicSharedPtr {
@@ -125,4 +125,4 @@ class NonAtomicSharedPtr {
   }
 };
 
-} // namespace torch::neutron
+} // namespace torch::native::neutron

@@ -12,7 +12,7 @@
 #include <torch/csrc/inductor/aoti_neutron/device.h>
 #include <torch/csrc/inductor/aoti_neutron/non_atomic_shared_ptr.h>
 
-namespace torch::neutron {
+namespace torch::native::neutron {
 
 // Device traits template for device-specific operations
 template <DeviceType D>
@@ -195,4 +195,4 @@ class MaybeOwningStorage {
 
 using Storage = NonAtomicSharedPtr<MaybeOwningStorage>;
 
-} // namespace torch::neutron
+} // namespace torch::native::neutron

@@ -1862,6 +1862,7 @@ class AotCodeCompiler:
                     compile_only=True,
                     **compile_command,
                 )
+
                 cuda_util_files = [
                     str(
                         Path(__file__).parent.parent
@@ -1872,7 +1873,17 @@ class AotCodeCompiler:
                         / "_weight_int4pack_mm.cu"
                     )
                 ]
-                generated_files.extend(cuda_util_files)
+                """
+                cuda_o = wrapper_o.replace(".wrapper.o", ".cuda_utils.o")
+                cuda_cmd = cuda_compile_command(
+                    cuda_util_files,
+                    cuda_o,
+                    "o",
+                    ["-I /data/users/binbao/pytorch/torch/include -D USE_CUDA"],
+                )
+                cuda_utils_o.append(cuda_o)
+                subprocess.run(cuda_cmd.split(), capture_output=True, text=True)
+                """
                 for file in cuda_util_files:
                     cuda_builder = CppBuilder(
                         name=file,
