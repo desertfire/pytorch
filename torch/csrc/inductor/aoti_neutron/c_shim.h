@@ -105,6 +105,13 @@ inline AOTITorchError aoti_torch_get_storage_offset(
   return AOTI_TORCH_SUCCESS;
 }
 
+inline AOTITorchError aoti_torch_new_tensor_handle(
+    AtenTensorHandle orig_handle,
+    AtenTensorHandle* new_handle) {
+  *new_handle = new torch::native::neutron::SlimTensor(*orig_handle);
+  return AOTI_TORCH_SUCCESS;
+}
+
 inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
     void* data,
     int64_t ndim,

@@ -711,7 +711,7 @@ def _get_glibcxx_abi_build_flags() -> list[str]:
 
 def _get_torch_cpp_wrapper_definition() -> list[str]:
     macros = ["TORCH_INDUCTOR_CPP_WRAPPER", "STANDALONE_TORCH_HEADER"]
-    if config.aot_inductor.libtorch_free_codegen:
+    if config.aot_inductor.standalone_codegen:
         macros.append("AOTI_LIBTORCH_FREE")
     return macros
 
@@ -808,7 +808,7 @@ def _get_torch_related_args(
     if (
         sys.platform != "darwin"
         and not config.is_fbcode()
-        and not config.aot_inductor.libtorch_free_codegen
+        and not config.aot_inductor.standalone_codegen
     ):
         libraries = ["torch", "torch_cpu"]
         if not aot_mode:
@@ -1263,7 +1263,7 @@ def get_cpp_torch_device_options(
     include_dirs = cpp_extension.include_paths(device_type)
     libraries_dirs = cpp_extension.library_paths(device_type)
 
-    if config.aot_inductor.libtorch_free_codegen:
+    if config.aot_inductor.standalone_codegen:
         libraries.extend(["openblas", "sleef"])
 
     if device_type == "cuda":
@@ -1277,9 +1277,9 @@ def get_cpp_torch_device_options(
             definitions.append(" __HIP_PLATFORM_AMD__")
         else:
             libraries.append("cuda")
-            if config.aot_inductor.libtorch_free_codegen:
+            if config.aot_inductor.standalone_codegen:
                 libraries.append("cublas")
-            if not config.is_fbcode() and not config.aot_inductor.libtorch_free_codegen:
+            if not config.is_fbcode() and not config.aot_inductor.standalone_codegen:
                 libraries.extend(["c10_cuda", "torch_cuda"])
             _transform_cuda_paths(libraries_dirs)
 

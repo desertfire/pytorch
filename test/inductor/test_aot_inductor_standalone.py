@@ -52,7 +52,7 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
             @functools.wraps(value)
             @config.patch(
                 {
-                    "aot_inductor.libtorch_free_codegen": True,
+                    "aot_inductor.standalone_codegen": True,
                     "max_autotune_gemm_backends": "TRITON",
                     "max_autotune_conv_backends": "TRITON",
                 }
@@ -70,7 +70,7 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
 
 
 test_list_cpu = {
-    "test_simple",
+    # Need to sort out BLAS building issues to support any model with matmul
     "test_cos",
 }
 
@@ -88,7 +88,7 @@ class AOTInductorTestLibtorchFreeCpu(TestCase):
 copy_tests(
     AOTInductorTestsTemplate,
     AOTInductorTestLibtorchFreeCpu,
-    "cpu_libtorch_free",
+    "cpu_standalone",
     test_list_cpu,
 )
 
@@ -113,7 +113,7 @@ class AOTInductorTestLibtorchFreeGpu(TestCase):
 copy_tests(
     AOTInductorTestsTemplate,
     AOTInductorTestLibtorchFreeGpu,
-    f"{GPU_TYPE}_libtorch_free",
+    f"{GPU_TYPE}_standalone",
     test_list_gpu,
 )
 

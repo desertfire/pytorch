@@ -166,7 +166,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
             f"torch/csrc/inductor/aoti_neutron/{self.device}/c_shim_{self.device}.h"
-            if config.aot_inductor.libtorch_free_codegen
+            if config.aot_inductor.standalone_codegen
             else f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
         extend_aoti_c_shim_path = os.path.join(
@@ -177,9 +177,10 @@ class CppWrapperCpu(PythonWrapperCodegen):
         if os.path.exists(extend_aoti_c_shim_path):
             self.header.splice(f"#include <{extend_aoti_c_shim_include}>")
 
-        self.header.splice(
-            f"#include <torch/csrc/inductor/aoti_neutron/{self.device}/_weight_int4pack_mm.h>"
-        )
+        if self.device == "cuda":
+            self.header.splice(
+                f"#include <torch/csrc/inductor/aoti_neutron/{self.device}/_weight_int4pack_mm.h>"
+            )
 
     def write_header(self):
         if V.graph.is_const_graph:
@@ -204,7 +205,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 os.path.join(os.path.dirname(__file__), "aoti_runtime", "interface.cpp")
             ) as f:
                 self.header.splice(f.read())
-            if config.aot_inductor.libtorch_free_codegen:
+            if config.aot_inductor.standalone_codegen:
                 csrc_root = os.path.join(
                     os.path.dirname(__file__),
                     "..",
@@ -957,7 +958,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
             self.codegen_const_run_driver()
             aot_mode_decls.writeline("} // namespace torch::aot_inductor")
             aot_mode_decls.writeline("using namespace torch::aot_inductor;")
-            if config.aot_inductor.libtorch_free_codegen:
+            if config.aot_inductor.standalone_codegen:
                 aot_mode_decls.writeline("using namespace torch::native::neutron;")
 
         self.prefix = cache_decls = IndentedBuffer()

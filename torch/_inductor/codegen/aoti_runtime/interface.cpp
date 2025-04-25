@@ -206,11 +206,6 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
 
     for (size_t i = 0; i < num_outputs; i++) {
       torch::native::neutron::SlimTensor* tensor = outputs[i];
-      std::cout << "tensor->sizes() = " << tensor->size(0) << std::endl;
-      std::cout << "tensor->sizes() = " << tensor->size(1) << std::endl;
-      std::cout << "tensor->strides() = " << tensor->stride(0) << std::endl;
-      std::cout << "tensor->strides() = " << tensor->stride(1) << std::endl;
-
       FlattenedTensor *tuple = new FlattenedTensor(
         tensor->data_ptr(),
         tensor->sizes().data(),

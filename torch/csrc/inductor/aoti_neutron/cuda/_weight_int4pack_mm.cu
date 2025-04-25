@@ -1113,7 +1113,7 @@ T _weight_int4pack_mm_cuda(
   );
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 50700) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 800)))
-  auto stream = torch::native::neutron::get_current_stream(0);
+  auto stream = get_current_stream(0);
 #define RUN_GEMM(WARPS, K_TILES_PER_WARP, Q_GROUP_SIZE, REDUCE_TYPE) \
   do {                                                               \
     using ACLayout = ALayout_RM<REDUCE_TYPE>;                        \

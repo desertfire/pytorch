@@ -33,8 +33,8 @@ class TORCH_API AOTIModelContainerRunner {
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr);
 
-  // inputs and outputs are flattened, used for calling from aten
-  // tensor to libtorch_free tensor
+  // inputs and outputs are flattened, used for calling from
+  // AtenTensor to SlimTensor
   virtual std::vector<at::Tensor> flattened_run(
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr);
