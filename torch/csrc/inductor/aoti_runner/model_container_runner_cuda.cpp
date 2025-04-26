@@ -1,6 +1,13 @@
 #if !defined(C10_MOBILE) && !defined(ANDROID)
 #include <torch/csrc/inductor/aoti_runner/model_container_runner_cuda.h>
 
+namespace {
+void deleter(void* ptr) {
+  // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
+  cudaFree(ptr);
+}
+} // namespace
+
 namespace torch::inductor {
 
 AOTIModelContainerRunnerCuda::AOTIModelContainerRunnerCuda(
@@ -41,8 +48,7 @@ std::vector<at::Tensor> AOTIModelContainerRunnerCuda::flattened_run(
     at::cuda::CUDAStream cuda_stream = c10::cuda::getCurrentCUDAStream();
     stream_handle = reinterpret_cast<void*>(cuda_stream.stream());
   }
-  return flattened_run_impl(
-      std::move(inputs), stream_handle, [](void* ptr) { cudaFree(ptr); });
+  return flattened_run_impl(std::move(inputs), stream_handle, deleter);
 }
 
 namespace {

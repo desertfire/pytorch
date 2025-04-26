@@ -2,7 +2,6 @@
 
 #include <c10/util/error.h>
 #include <c10/util/string_view.h>
-#include <torch/csrc/inductor/aoti_neutron/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner_cpu.h>
@@ -67,6 +66,19 @@ const std::string k_separator = "/";
 
 namespace torch::inductor {
 namespace {
+const nlohmann::json& load_json_file(std::string json_path) {
+  if (!file_exists(json_path)) {
+    throw std::runtime_error("File not found: " + json_path);
+  }
+
+  std::ifstream json_file(json_path);
+  TORCH_CHECK(json_file.is_open());
+  static nlohmann::json json_obj;
+  json_file >> json_obj;
+
+  return json_obj;
+}
+
 std::tuple<std::string, std::string> get_cpp_compile_command(
     const std::string& filename,
     const std::vector<std::string>& sources,
@@ -257,16 +269,14 @@ std::string compile_so(
   std::string filename = cpp_path.substr(0, lastindex);
 
   std::string compile_flags_path = filename + "_compile_flags.json";
-  const nlohmann::json compile_flags =
-      torch::native::neutron::load_json_file(compile_flags_path);
+  const nlohmann::json compile_flags = load_json_file(compile_flags_path);
 
   auto [compile_cmd, output_o] =
       get_cpp_compile_command(filename, {cpp_path}, compile_flags);
 
   std::string linker_flags_path =
       cpp_path.substr(0, lastindex) + "_linker_flags.json";
-  const nlohmann::json linker_flags =
-      torch::native::neutron::load_json_file(linker_flags_path);
+  const nlohmann::json linker_flags = load_json_file(linker_flags_path);
 
   auto [link_cmd, output_so] =
       get_cpp_compile_command(filename, {output_o, consts_path}, linker_flags);
@@ -312,6 +322,19 @@ std::string compile_so(
   return output_so;
 }
 } // namespace
+
+void AOTIModelPackageLoader::load_metadata(const std::string& cpp_filename) {
+  // Parse metadata json file (if it exists) into the metadata_ map
+  size_t lastindex = cpp_filename.find_last_of('.');
+  std::string metadata_json_path =
+      cpp_filename.substr(0, lastindex) + "_metadata.json";
+
+  const nlohmann::json metadata_json_obj = load_json_file(metadata_json_path);
+
+  for (auto& item : metadata_json_obj.items()) {
+    metadata_[item.key()] = item.value().get<std::string>();
+  }
+}
 
 AOTIModelPackageLoader::AOTIModelPackageLoader(
     const std::string& model_package_path,
@@ -380,8 +403,10 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
         if (lastSlash != std::string::npos) {
           filename = filename_str.substr(lastSlash + 1);
         }
-        output_path_str +=
-            k_separator + model_directory + k_separator + filename;
+        output_path_str.append(k_separator)
+            .append(model_directory)
+            .append(k_separator)
+            .append(filename);
       }
 
       LOG(INFO) << "Extract file: " << filename_str << " to "
@@ -442,10 +467,7 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
   }
 
   // Load metadata which can be queried by user
-  size_t lastindex = cpp_path.find_last_of('.');
-  std::string metadata_json_path =
-      cpp_path.substr(0, lastindex) + "_metadata.json";
-  metadata_ = torch::native::neutron::load_metadata(metadata_json_path);
+  load_metadata(cpp_path);
 
   // Construct the runner depending on the device information
   std::string device = metadata_["AOTI_DEVICE_KEY"];

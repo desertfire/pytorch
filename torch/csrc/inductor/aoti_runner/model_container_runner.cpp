@@ -1,7 +1,6 @@
 #if !defined(C10_MOBILE) && !defined(ANDROID)
 #include <ATen/DynamicLibrary.h>
 
-#include <torch/csrc/inductor/aoti_neutron/package_loader_utils.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
 #include <torch/csrc/inductor/aoti_torch/oss_proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/tensor_converter.h>
@@ -14,6 +13,11 @@ namespace fs = std::filesystem;
 namespace {
 bool file_exists(std::string& path) {
   return fs::exists(path);
+}
+
+void deleter(void* ptr) {
+  // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
+  free(ptr);
 }
 } // namespace
 
@@ -174,7 +178,7 @@ std::vector<at::Tensor> AOTIModelContainerRunner::boxed_run(
 std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle,
-    std::function<void(void*)> deleter) {
+    const std::function<void(void*)>& deleter) {
   if (!flattened_run_func_) {
     throw std::runtime_error(
         "AOTInductorModelContainerFlattenedRun is only available in the libtorch-free mode.");
@@ -249,8 +253,7 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
 std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle) {
-  return flattened_run_impl(
-      std::move(inputs), stream_handle, [](void* ptr) { free(ptr); });
+  return flattened_run_impl(std::move(inputs), stream_handle, deleter);
 }
 
 std::unordered_map<std::string, std::string> AOTIModelContainerRunner::
