@@ -568,7 +568,9 @@ def _get_optimization_cflags(
             else [wrapper_opt_level if min_optimize else "O3", "DNDEBUG"]
         )
         if "nvcc" in cpp_compiler:
-            return ["gencode=arch=compute_80,code=[sm_80,compute_80]"]
+            from .codecache import _nvcc_get_arch_option
+
+            return [_nvcc_get_arch_option()]
 
         cflags += _get_ffast_math_flags()
         cflags.append("fno-finite-math-only")

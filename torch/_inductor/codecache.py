@@ -3197,7 +3197,7 @@ def _nvcc_host_compiler_options() -> list[str]:
     ]
 
 
-def _nvcc_compiler_options() -> list[str]:
+def _nvcc_get_arch_option() -> str:
     arch = cuda_env.get_cuda_arch()
     if arch == "90":
         # Required by cutlass compilation.
@@ -3205,6 +3205,10 @@ def _nvcc_compiler_options() -> list[str]:
     if arch == "100":
         arch = "100a"
     code = [f"sm_{arch}", f"compute_{arch}"]
+    return f"gencode=arch=compute_{arch},code=[{','.join(code)}]"
+
+
+def _nvcc_compiler_options() -> list[str]:
     if config.cuda.enable_cuda_lto:
         code += [f"lto_{arch}"]
     options = [
@@ -3213,7 +3217,7 @@ def _nvcc_compiler_options() -> list[str]:
         "-DCUTLASS_ENABLE_SM90_EXTENDED_MMA_SHAPES=1",
         "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
         "-w",
-        f"-gencode=arch=compute_{arch},code=[{','.join(code)}]",
+        f"-{_nvcc_get_arch_option()}",
         config.cuda.compile_opt_level,
         "-std=c++17",
         "--expt-relaxed-constexpr",
