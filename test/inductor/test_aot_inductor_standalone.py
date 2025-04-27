@@ -52,7 +52,7 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
             @functools.wraps(value)
             @config.patch(
                 {
-                    "aot_inductor.standalone_codegen": True,
+                    "aot_inductor.codegen_standalone": True,
                     "max_autotune_gemm_backends": "TRITON",
                     "max_autotune_conv_backends": "TRITON",
                 }
@@ -70,8 +70,7 @@ def copy_tests(my_cls, other_cls, suffix, whitelist):  # noqa: B902
 
 
 test_list_cpu = {
-    # Need to sort out BLAS building issues to support any model with matmul
-    "test_cos",
+    # Need to sort out third-party library build issues, e.g. blas, sleef
 }
 
 

@@ -1263,8 +1263,9 @@ def get_cpp_torch_device_options(
     include_dirs = cpp_extension.include_paths(device_type)
     libraries_dirs = cpp_extension.library_paths(device_type)
 
-    if config.aot_inductor.codegen_standalone:
-        libraries.extend(["openblas", "sleef"])
+    # Need to build third-party libraries for CPU
+    # if device_type == "cpu" and config.aot_inductor.codegen_standalone:
+    # libraries.extend(["openblas", "sleef"])
 
     if device_type == "cuda":
         definitions.append(" USE_ROCM" if torch.version.hip else " USE_CUDA")
