@@ -223,7 +223,7 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
     }
   })
 #else
-  // This function is only provided in the libtorch-free mode
+  // This function is only provided in the standalone mode
   return AOTI_RUNTIME_FAILURE;
 #endif
 }

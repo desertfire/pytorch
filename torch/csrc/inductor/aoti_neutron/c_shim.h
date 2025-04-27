@@ -1,6 +1,6 @@
 #pragma once
 
-// This header mimics APIs in aoti_torch/c/shim.h in a libtorch-free way.
+// This header mimics APIs in aoti_torch/c/shim.h in a standalone way.
 //
 #include <torch/csrc/inductor/aoti_neutron/layout.h>
 #include <torch/csrc/inductor/aoti_neutron/scalar_type.h>
@@ -13,7 +13,7 @@
 using AtenTensorOpaque = torch::native::neutron::SlimTensor;
 using AtenTensorHandle = torch::native::neutron::SlimTensor*;
 
-// AOTIProxyExecutorHandle isn't supported in libtorch-free mode.
+// AOTIProxyExecutorHandle isn't supported in standalone mode.
 // Just defining it to void* to make the code compile
 using AOTIProxyExecutorHandle = void*;
 

@@ -179,7 +179,7 @@ class MaybeOwningStorage {
 
   void unsafe_set_to_non_owning() {
     // This is only used when interacting with at::Tensor. When testing
-    // libtorch-free AOTI from pytorch, we need to convert the output SlimTensor
+    // standalone AOTI from pytorch, we need to convert the output SlimTensor
     // into at::Tensor, which means the storage ownership should be stolen by
     // at::Tensor. When all the SlimTensors referencing the storage are
     // destroyed, the storage should NOT be freed. It should be freed when the

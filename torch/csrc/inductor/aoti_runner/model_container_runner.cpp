@@ -181,7 +181,7 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
     const std::function<void(void*)>& deleter) {
   if (!flattened_run_func_) {
     throw std::runtime_error(
-        "AOTInductorModelContainerFlattenedRun is only available in the libtorch-free mode.");
+        "AOTInductorModelContainerFlattenedRun is only available in the standalone mode.");
   }
 
   using FlattenedTensor = std::tuple<
