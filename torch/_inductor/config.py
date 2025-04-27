@@ -1297,7 +1297,9 @@ class aot_inductor:
     precompile_headers: bool = False
 
     # Experimental.  Controls whether to generate model code in a standalone way.
-    standalone_codegen: bool = os.environ.get("AOT_INDUCTOR_LIBTORCH_FREE", "0") == "1"
+    codegen_standalone: bool = (
+        os.environ.get("AOT_INDUCTOR_CODEGEN_STANDALONE", "0") == "1"
+    )
 
     # Embed generated .cubin files into the .so
     embed_cubin: bool = True

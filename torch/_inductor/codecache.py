@@ -1718,7 +1718,7 @@ class AotCodeCompiler:
             metadata = config.aot_inductor.metadata
             metadata["AOTI_DEVICE_KEY"] = device_type
             metadata["LIBTORCH_FREE"] = (
-                "1" if config.aot_inductor.standalone_codegen else "0"
+                "1" if config.aot_inductor.codegen_standalone else "0"
             )
 
             # Save user provided metadata
@@ -1856,7 +1856,7 @@ class AotCodeCompiler:
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
 
             cuda_utils_o = []
-            if config.aot_inductor.standalone_codegen and device_type == "cuda":
+            if config.aot_inductor.codegen_standalone and device_type == "cuda":
                 cuda_util_files = [
                     str(
                         Path(__file__).parent.parent
