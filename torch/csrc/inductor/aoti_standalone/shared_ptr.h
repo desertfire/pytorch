@@ -6,6 +6,15 @@
 
 namespace torch::native::standalone {
 
+// Non-atomic shared pointer, not thread-safe.
+// This will be used to manage intermediate SlimTensors storage.
+// Because those intermediate SlimTensors are not shared across threads,
+// we don't need to use std::shared_ptr.
+// For input/output tensors, their life cycles are not managed by
+// AOTI generated model code, so it's also ok to use non-atomic shared
+// pointer. Reference counting will still happen for the corresponding
+// SlimTensors, but the storage won't be freed since their deleters will
+// be a dummy.
 template <typename T>
 class NonAtomicSharedPtr {
  private:
@@ -125,4 +134,11 @@ class NonAtomicSharedPtr {
   }
 };
 
+#ifdef MULTI_THREADING
+template <typename T>
+using SharedPtr = std::shared_ptr<T>;
+#else
+template <typename T>
+using SharedPtr = torch::native::standalone::NonAtomicSharedPtr<T>;
+#endif // MULTI_THREADING
 } // namespace torch::native::standalone

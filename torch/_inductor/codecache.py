@@ -3205,12 +3205,12 @@ def _nvcc_get_arch_option() -> str:
     if arch == "100":
         arch = "100a"
     code = [f"sm_{arch}", f"compute_{arch}"]
+    if config.cuda.enable_cuda_lto:
+        code += [f"lto_{arch}"]
     return f"gencode=arch=compute_{arch},code=[{','.join(code)}]"
 
 
 def _nvcc_compiler_options() -> list[str]:
-    if config.cuda.enable_cuda_lto:
-        code += [f"lto_{arch}"]
     options = [
         "-t=0",
         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",

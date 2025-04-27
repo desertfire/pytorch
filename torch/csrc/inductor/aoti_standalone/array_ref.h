@@ -1,6 +1,6 @@
 #pragma once
 
-#include <torch/csrc/inductor/aoti_standalone/non_atomic_shared_ptr.h>
+#include <torch/csrc/inductor/aoti_standalone/shared_ptr.h>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -24,7 +24,7 @@ class MaybeOwningArrayRef final {
   size_t length_;
 
   using BaseT = std::remove_const_t<T>;
-  NonAtomicSharedPtr<BaseT> owning_data_;
+  SharedPtr<BaseT> owning_data_;
   // decay_const_t<T>* owning_data_ = nullptr;
 
  public:
@@ -45,7 +45,7 @@ class MaybeOwningArrayRef final {
   MaybeOwningArrayRef(T* data, size_t length, bool owning)
       : data_(data), length_(length) {
     if (owning) {
-      owning_data_ = NonAtomicSharedPtr<BaseT>(new BaseT[length_]);
+      owning_data_ = SharedPtr<BaseT>(new BaseT[length_]);
       std::memcpy(owning_data_.get(), data, length_ * sizeof(T));
       data_ = owning_data_.get();
     }
@@ -55,6 +55,12 @@ class MaybeOwningArrayRef final {
   MaybeOwningArrayRef(const MaybeOwningArrayRef& other) = default;
   MaybeOwningArrayRef& operator=(const MaybeOwningArrayRef& other) = default;
   MaybeOwningArrayRef& operator=(MaybeOwningArrayRef&& other) = default;
+
+  ~MaybeOwningArrayRef() {
+    if (owning_data_) {
+      owning_data_.reset();
+    }
+  }
 
   /// Construct an MaybeOwningArrayRef from a range.
   constexpr MaybeOwningArrayRef(T* begin, T* end)

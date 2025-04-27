@@ -10,7 +10,7 @@
 #endif
 
 #include <torch/csrc/inductor/aoti_standalone/device.h>
-#include <torch/csrc/inductor/aoti_standalone/non_atomic_shared_ptr.h>
+#include <torch/csrc/inductor/aoti_standalone/shared_ptr.h>
 
 namespace torch::native::standalone {
 
@@ -140,7 +140,7 @@ class MaybeOwningStorage {
   }
 
   void clone(
-      const NonAtomicSharedPtr<MaybeOwningStorage>& other,
+      const SharedPtr<MaybeOwningStorage>& other,
       size_t nbytes,
       int64_t storage_offset) {
     if (data_ == nullptr || other->data_ == nullptr) {
@@ -193,6 +193,6 @@ class MaybeOwningStorage {
   bool owning_;
 };
 
-using Storage = NonAtomicSharedPtr<MaybeOwningStorage>;
+using Storage = SharedPtr<MaybeOwningStorage>;
 
 } // namespace torch::native::standalone
