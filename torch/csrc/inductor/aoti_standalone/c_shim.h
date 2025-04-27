@@ -2,16 +2,16 @@
 
 // This header mimics APIs in aoti_torch/c/shim.h in a standalone way.
 //
-#include <torch/csrc/inductor/aoti_neutron/layout.h>
-#include <torch/csrc/inductor/aoti_neutron/scalar_type.h>
-#include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
+#include <torch/csrc/inductor/aoti_standalone/layout.h>
+#include <torch/csrc/inductor/aoti_standalone/scalar_type.h>
+#include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
 
 // The following files are implemented in a header-only way
 #include <c10/util/BFloat16.h>
 // #include <c10/util/Half.h>
 
-using AtenTensorOpaque = torch::native::neutron::SlimTensor;
-using AtenTensorHandle = torch::native::neutron::SlimTensor*;
+using AtenTensorOpaque = torch::native::standalone::SlimTensor;
+using AtenTensorHandle = torch::native::standalone::SlimTensor*;
 
 // AOTIProxyExecutorHandle isn't supported in standalone mode.
 // Just defining it to void* to make the code compile
@@ -108,7 +108,7 @@ inline AOTITorchError aoti_torch_get_storage_offset(
 inline AOTITorchError aoti_torch_new_tensor_handle(
     AtenTensorHandle orig_handle,
     AtenTensorHandle* new_handle) {
-  *new_handle = new torch::native::neutron::SlimTensor(*orig_handle);
+  *new_handle = new torch::native::standalone::SlimTensor(*orig_handle);
   return AOTI_TORCH_SUCCESS;
 }
 
@@ -125,16 +125,16 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
     int32_t layout,
     const uint8_t* opaque_metadata,
     int64_t opaque_metadata_size) {
-  torch::native::neutron::MiniIntArrayRef sizes(sizes_ptr, ndim);
-  torch::native::neutron::MiniIntArrayRef strides(strides_ptr, ndim);
+  torch::native::standalone::MiniIntArrayRef sizes(sizes_ptr, ndim);
+  torch::native::standalone::MiniIntArrayRef strides(strides_ptr, ndim);
   *ret_new_tensor =
-      new torch::native::neutron::SlimTensor(create_tensor_from_blob(
+      new torch::native::standalone::SlimTensor(create_tensor_from_blob(
           data,
           sizes,
           strides,
-          static_cast<torch::native::neutron::ScalarType>(dtype),
-          {static_cast<torch::native::neutron::DeviceType>(device_type),
-           static_cast<torch::native::neutron::DeviceIndex>(device_index)},
+          static_cast<torch::native::standalone::ScalarType>(dtype),
+          {static_cast<torch::native::standalone::DeviceType>(device_type),
+           static_cast<torch::native::standalone::DeviceIndex>(device_index)},
           storage_offset));
   return AOTI_TORCH_SUCCESS;
 }
@@ -146,14 +146,14 @@ inline AOTITorchError aoti_torch_empty_strided(
     int32_t device_type,
     int32_t device_index,
     AtenTensorHandle* ret_new_tensor) {
-  torch::native::neutron::MiniIntArrayRef sizes(sizes_ptr, ndim);
-  torch::native::neutron::MiniIntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new torch::native::neutron::SlimTensor(create_empty_tensor(
+  torch::native::standalone::MiniIntArrayRef sizes(sizes_ptr, ndim);
+  torch::native::standalone::MiniIntArrayRef strides(strides_ptr, ndim);
+  *ret_new_tensor = new torch::native::standalone::SlimTensor(create_empty_tensor(
       sizes,
       strides,
-      static_cast<torch::native::neutron::ScalarType>(dtype),
-      {static_cast<torch::native::neutron::DeviceType>(device_type),
-       static_cast<torch::native::neutron::DeviceIndex>(device_index)},
+      static_cast<torch::native::standalone::ScalarType>(dtype),
+      {static_cast<torch::native::standalone::DeviceType>(device_type),
+       static_cast<torch::native::standalone::DeviceIndex>(device_index)},
       0));
   return AOTI_TORCH_SUCCESS;
 }
@@ -165,9 +165,9 @@ inline AOTITorchError aoti_torch__reinterpret_tensor(
     const int64_t* strides_ptr,
     int64_t offset_increment,
     AtenTensorHandle* ret_new_tensor) {
-  torch::native::neutron::MiniIntArrayRef sizes(sizes_ptr, ndim);
-  torch::native::neutron::MiniIntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new torch::native::neutron::SlimTensor(
+  torch::native::standalone::MiniIntArrayRef sizes(sizes_ptr, ndim);
+  torch::native::standalone::MiniIntArrayRef strides(strides_ptr, ndim);
+  *ret_new_tensor = new torch::native::standalone::SlimTensor(
       self->storage(),
       sizes,
       strides,
@@ -181,9 +181,9 @@ inline AOTITorchError aoti_torch_as_strided(
     const int64_t* sizes_ptr,
     const int64_t* strides_ptr,
     AtenTensorHandle* ret) {
-  torch::native::neutron::MiniIntArrayRef sizes(sizes_ptr, self->dim());
-  torch::native::neutron::MiniIntArrayRef strides(strides_ptr, self->dim());
-  *ret = new torch::native::neutron::SlimTensor(
+  torch::native::standalone::MiniIntArrayRef sizes(sizes_ptr, self->dim());
+  torch::native::standalone::MiniIntArrayRef strides(strides_ptr, self->dim());
+  *ret = new torch::native::standalone::SlimTensor(
       self->storage(), sizes, strides, self->dtype(), self->storage_offset());
   return AOTI_TORCH_SUCCESS;
 }
@@ -191,14 +191,14 @@ inline AOTITorchError aoti_torch_as_strided(
 inline AOTITorchError aoti_torch_clone(
     AtenTensorHandle self,
     AtenTensorHandle* ret) {
-  torch::native::neutron::SlimTensor tmp_tensor = create_empty_tensor(
+  torch::native::standalone::SlimTensor tmp_tensor = create_empty_tensor(
       self->sizes(),
       self->strides(),
       self->dtype(),
       {self->device_type(), self->device_index()},
       0);
   tmp_tensor.copy_(*self);
-  *ret = new torch::native::neutron::SlimTensor(tmp_tensor);
+  *ret = new torch::native::standalone::SlimTensor(tmp_tensor);
   return AOTI_TORCH_SUCCESS;
 }
 
@@ -213,7 +213,7 @@ inline AOTITorchError aoti_torch_clone_preserve_strides(
     }
     needed_size += (self->size(i) - 1) * self->stride(i);
   }
-  torch::native::neutron::SlimTensor tmp_tensor = *self;
+  torch::native::standalone::SlimTensor tmp_tensor = *self;
   tmp_tensor.as_strided_({needed_size}, {1}, 0);
   aoti_torch_clone(&tmp_tensor, ret);
   (*ret)->as_strided_(self->sizes(), self->strides(), self->storage_offset());

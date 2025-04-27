@@ -1,6 +1,6 @@
 #pragma once
 
-#include <torch/csrc/inductor/aoti_neutron/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
 
 #ifdef __cplusplus
 extern "C" {

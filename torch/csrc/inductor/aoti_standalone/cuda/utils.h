@@ -10,9 +10,9 @@
 #include <stdexcept>
 #include <unordered_map>
 
-#include <torch/csrc/inductor/aoti_neutron/device.h>
+#include <torch/csrc/inductor/aoti_standalone/device.h>
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 
 inline void throw_cuda_error(cudaError_t err) {
   if (err != cudaSuccess) {
@@ -171,5 +171,5 @@ class AOTICudaStream {
     }                                                               \
   } while (0)
 
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone
 #endif // USE_CUDA

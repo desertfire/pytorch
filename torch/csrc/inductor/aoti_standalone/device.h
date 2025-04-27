@@ -27,7 +27,7 @@
   _(mtia) /* 19 */             \
   _(privateuse1) /* 20 */
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 using DeviceIndex = int32_t;
 
 enum class DeviceType : int8_t {
@@ -74,7 +74,7 @@ struct Device {
 };
 
 const Device CPU_DEVICE = Device(DeviceType::cpu, 0);
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,7 +83,7 @@ extern "C" {
 // Define all the aoti_torch_device_type_*() functions.
 #define DEFINE_ENUM(value)                                     \
   inline int32_t aoti_torch_device_type_##value() {            \
-    return (int32_t)torch::native::neutron::DeviceType::value; \
+    return (int32_t)torch::native::standalone::DeviceType::value; \
   }
 FORALL_DEVICE_TYPES(DEFINE_ENUM)
 #undef DEFINE_ENUM

@@ -7,7 +7,7 @@
 
 #ifdef USE_CUDA
 #ifdef AOTI_LIBTORCH_FREE
-#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 
 #else // AOTI_LIBTORCH_FREE
 #include <torch/csrc/inductor/aoti_runtime/utils.h>

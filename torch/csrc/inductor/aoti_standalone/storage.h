@@ -6,13 +6,13 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
-#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 #endif
 
-#include <torch/csrc/inductor/aoti_neutron/device.h>
-#include <torch/csrc/inductor/aoti_neutron/non_atomic_shared_ptr.h>
+#include <torch/csrc/inductor/aoti_standalone/device.h>
+#include <torch/csrc/inductor/aoti_standalone/non_atomic_shared_ptr.h>
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 
 // Device traits template for device-specific operations
 template <DeviceType D>
@@ -195,4 +195,4 @@ class MaybeOwningStorage {
 
 using Storage = NonAtomicSharedPtr<MaybeOwningStorage>;
 
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone

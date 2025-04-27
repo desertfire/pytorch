@@ -6,15 +6,15 @@
 #include <stdexcept>
 #include <utility>
 
-#include <torch/csrc/inductor/aoti_neutron/storage.h>
-#include <torch/csrc/inductor/aoti_neutron/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/storage.h>
+#include <torch/csrc/inductor/aoti_standalone/utils.h>
 
 #ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_neutron/cuda/type_conversion.h>
-#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/type_conversion.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 #endif
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 
 class SlimTensor {
  public:
@@ -209,4 +209,4 @@ inline SlimTensor create_tensor_from_blob(
   Storage storage(new MaybeOwningStorage(data, device));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone

@@ -3,7 +3,7 @@
 #include <torch/csrc/inductor/aoti_runtime/interface.h>
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
 #ifdef AOTI_LIBTORCH_FREE
-#include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
+#include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
 #endif
 
 #include <iostream>
@@ -173,23 +173,23 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
       int64_t // storage_offset
       >;
 
-  std::vector<torch::native::neutron::SlimTensor*> inputs;
+  std::vector<torch::native::standalone::SlimTensor*> inputs;
   inputs.reserve(num_inputs);
 
   for (size_t i = 0; i < num_inputs; i++) {
     FlattenedTensor* tuple = reinterpret_cast<FlattenedTensor*>(input_handles[i]);
-    torch::native::neutron::MiniIntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
-    torch::native::neutron::MiniIntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
-    inputs.push_back(new torch::native::neutron::SlimTensor(
-      torch::native::neutron::create_tensor_from_blob(
+    torch::native::standalone::MiniIntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
+    torch::native::standalone::MiniIntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    inputs.push_back(new torch::native::standalone::SlimTensor(
+      torch::native::standalone::create_tensor_from_blob(
         std::get<0>(*tuple),
         sizes,
         strides,
         // dtype is 1-to-1 mapping for now
-        static_cast<torch::native::neutron::ScalarType>(std::get<4>(*tuple)),
+        static_cast<torch::native::standalone::ScalarType>(std::get<4>(*tuple)),
         // device_type is 1-to-1 mapping for now
-        {static_cast<torch::native::neutron::DeviceType>(std::get<5>(*tuple)),
-        static_cast<torch::native::neutron::DeviceIndex>(std::get<6>(*tuple))},
+        {static_cast<torch::native::standalone::DeviceType>(std::get<5>(*tuple)),
+        static_cast<torch::native::standalone::DeviceIndex>(std::get<6>(*tuple))},
         std::get<7>(*tuple))));
     delete tuple;
   }
@@ -199,13 +199,13 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
 
   CONVERT_EXCEPTION_TO_ERROR_CODE({
     AOTINoGradGuard guard;
-    std::vector<torch::native::neutron::SlimTensor*> outputs(num_outputs);
+    std::vector<torch::native::standalone::SlimTensor*> outputs(num_outputs);
 
     container->run_single_threaded(
         inputs.data(), outputs.data(), stream, proxy_executor_handle);
 
     for (size_t i = 0; i < num_outputs; i++) {
-      torch::native::neutron::SlimTensor* tensor = outputs[i];
+      torch::native::standalone::SlimTensor* tensor = outputs[i];
       FlattenedTensor *tuple = new FlattenedTensor(
         tensor->data_ptr(),
         tensor->sizes().data(),

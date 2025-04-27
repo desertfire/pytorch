@@ -1,12 +1,12 @@
 #pragma once
 
-#ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_neutron/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-AOTITorchError aoti_torch_cuda_addmm_out(
+
+AOTITorchError aoti_torch_cpu_addmm_out(
     AtenTensorHandle out,
     AtenTensorHandle self,
     AtenTensorHandle mat1,
@@ -17,4 +17,3 @@ AOTITorchError aoti_torch_cuda_addmm_out(
 #ifdef __cplusplus
 } // extern "C"
 #endif
-#endif // USE_CUDA

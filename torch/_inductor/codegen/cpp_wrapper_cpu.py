@@ -165,7 +165,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
         # present.
         self.header.splice(self.get_device_include_path(device))
         extend_aoti_c_shim_include = (
-            f"torch/csrc/inductor/aoti_neutron/{self.device}/c_shim_{self.device}.h"
+            f"torch/csrc/inductor/aoti_standalone/{self.device}/c_shim_{self.device}.h"
             if config.aot_inductor.standalone_codegen
             else f"torch/csrc/inductor/aoti_torch/generated/extend/c_shim_{self.device}.h"
         )
@@ -179,7 +179,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
 
         if self.device == "cuda":
             self.header.splice(
-                f"#include <torch/csrc/inductor/aoti_neutron/{self.device}/_weight_int4pack_mm.h>"
+                f"#include <torch/csrc/inductor/aoti_standalone/{self.device}/_weight_int4pack_mm.h>"
             )
 
     def write_header(self):
@@ -212,7 +212,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
                     "..",
                     "csrc",
                     "inductor",
-                    "aoti_neutron",
+                    "aoti_standalone",
                     "cuda",
                 )
                 for file in [
@@ -959,7 +959,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
             aot_mode_decls.writeline("} // namespace torch::aot_inductor")
             aot_mode_decls.writeline("using namespace torch::aot_inductor;")
             if config.aot_inductor.standalone_codegen:
-                aot_mode_decls.writeline("using namespace torch::native::neutron;")
+                aot_mode_decls.writeline("using namespace torch::native::standalone;")
 
         self.prefix = cache_decls = IndentedBuffer()
         for dtype in self.used_cached_dtypes:

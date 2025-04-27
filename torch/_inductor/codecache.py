@@ -1862,7 +1862,7 @@ class AotCodeCompiler:
                         Path(__file__).parent.parent
                         / "csrc"
                         / "inductor"
-                        / "aoti_neutron"
+                        / "aoti_standalone"
                         / "cuda"
                         / "_weight_int4pack_mm.cu"
                     )
@@ -2573,7 +2573,7 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     extra_parse_arg = textwrap.dedent(
         """
         #ifdef AOTI_LIBTORCH_FREE
-        #include <torch/csrc/inductor/aoti_neutron/c_shim.h>
+        #include <torch/csrc/inductor/aoti_standalone/c_shim.h>
         #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
         #endif // AOTI_LIBTORCH_FREE

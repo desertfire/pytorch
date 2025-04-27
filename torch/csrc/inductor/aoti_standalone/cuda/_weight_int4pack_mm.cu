@@ -9,12 +9,12 @@
 
 #include <c10/cuda/CUDAException.h>
 #include <c10/util/Exception.h>
-#include <torch/csrc/inductor/aoti_neutron/slim_tensor.h>
-#include <torch/csrc/inductor/aoti_neutron/utils.h>
-#include <torch/csrc/inductor/aoti_neutron/cuda/_weight_int4pack_mm.h>
-#include <torch/csrc/inductor/aoti_neutron/cuda/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
+#include <torch/csrc/inductor/aoti_standalone/utils.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/_weight_int4pack_mm.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 
 template <typename U, typename V>
 constexpr __host__ __device__ auto divDown(U a, V b) -> decltype(a + b) {
@@ -1011,7 +1011,7 @@ T empty_tensor(
 }
 
 template<>
-torch::native::neutron::SlimTensor empty_tensor(
+torch::native::standalone::SlimTensor empty_tensor(
     MiniIntArrayRef sizes,
     MiniIntArrayRef strides,
     int dtype,
@@ -1019,9 +1019,9 @@ torch::native::neutron::SlimTensor empty_tensor(
     int device_index,
     int64_t storage_offset) {
   return create_empty_tensor(sizes, strides,
-    static_cast<torch::native::neutron::ScalarType>(dtype),
-    torch::native::neutron::Device{
-      static_cast<torch::native::neutron::DeviceType>(device_type),
+    static_cast<torch::native::standalone::ScalarType>(dtype),
+    torch::native::standalone::Device{
+      static_cast<torch::native::standalone::DeviceType>(device_type),
       device_index
     },
     storage_offset,
@@ -1035,7 +1035,7 @@ T _weight_int4pack_mm_cuda(
     const T& B,
     int64_t qGroupSize,
     const T& qScaleAndZeros) {
-  torch::native::neutron::AOTICudaGuard g(A.device());
+  torch::native::standalone::AOTICudaGuard g(A.device());
 
   TORCH_CHECK(
       A.device() == B.device() && A.device() == qScaleAndZeros.device());
@@ -1077,12 +1077,12 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(B_innerKTiles == 2 || B_innerKTiles == 4 || B_innerKTiles == 8);
 
   // A is standard row major
-  TORCH_CHECK(A.dtype() == torch::native::neutron::ScalarType::_bfloat16);
+  TORCH_CHECK(A.dtype() == torch::native::standalone::ScalarType::_bfloat16);
   TORCH_CHECK(A.is_contiguous());
   TORCH_CHECK(A.dim() == 2);
 
   // B has B_innerKTiles k-tiles in the innermost dimension
-  TORCH_CHECK(B.dtype() == torch::native::neutron::ScalarType::_int32);
+  TORCH_CHECK(B.dtype() == torch::native::standalone::ScalarType::_int32);
   TORCH_CHECK(B.is_contiguous());
   TORCH_CHECK(B.dim() == 4);
   TORCH_CHECK(B.size(1) == k / (B_innerKTiles * kKTileSize));
@@ -1103,11 +1103,11 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(qScaleAndZeros.size(2) == 2);
 
   // Output is a standard row-major matrix
-  auto C_final = empty_tensor<torch::native::neutron::SlimTensor>(
+  auto C_final = empty_tensor<torch::native::standalone::SlimTensor>(
     {m, n},
     {n, 1},
-    (int)torch::native::neutron::ScalarType::_bfloat16,
-    (int)torch::native::neutron::DeviceType::cuda,
+    (int)torch::native::standalone::ScalarType::_bfloat16,
+    (int)torch::native::standalone::DeviceType::cuda,
     0,
     0
   );
@@ -1226,13 +1226,13 @@ T _weight_int4pack_mm_cuda(
   return C_final;
 }
 
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone
 
 AOTITorchError aoti_torch_cuda__weight_int4pack_mm(AtenTensorHandle self, AtenTensorHandle mat2, int64_t qGroupSize, AtenTensorHandle qScaleAndZeros, AtenTensorHandle* ret0) {
     AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-        auto tmp_result = torch::native::neutron::_weight_int4pack_mm_cuda<torch::native::neutron::SlimTensor>(
+        auto tmp_result = torch::native::standalone::_weight_int4pack_mm_cuda<torch::native::standalone::SlimTensor>(
           *self, *mat2, qGroupSize, *qScaleAndZeros
         );
-        *ret0 = new torch::native::neutron::SlimTensor(std::move(tmp_result));
+        *ret0 = new torch::native::standalone::SlimTensor(std::move(tmp_result));
     });
 }

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <torch/csrc/inductor/aoti_neutron/non_atomic_shared_ptr.h>
+#include <torch/csrc/inductor/aoti_standalone/non_atomic_shared_ptr.h>
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
-namespace torch::native::neutron {
+namespace torch::native::standalone {
 
 template <typename T>
 class MaybeOwningArrayRef final {
@@ -175,4 +175,4 @@ class MaybeOwningArrayRef final {
 
 using MiniIntArrayRef = MaybeOwningArrayRef<const int64_t>;
 
-} // namespace torch::native::neutron
+} // namespace torch::native::standalone
