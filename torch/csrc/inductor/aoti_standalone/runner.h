@@ -4,9 +4,9 @@
 
 #include <torch/csrc/inductor/aoti_standalone/c_shim.h>
 
-// Define AOTI_LIBTORCH_FREE here to avoid redefined symbols seen by linter
-#ifndef AOTI_LIBTORCH_FREE
-#define AOTI_LIBTORCH_FREE
+// Define AOTI_STANDALONE here to avoid redefined symbols seen by linter
+#ifndef AOTI_STANDALONE
+#define AOTI_STANDALONE
 #endif
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
 

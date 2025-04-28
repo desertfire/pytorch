@@ -506,7 +506,7 @@ std::vector<at::Tensor> AOTIModelPackageLoader::run(
 std::vector<at::Tensor> AOTIModelPackageLoader::boxed_run(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle) {
-  if (metadata_["LIBTORCH_FREE"] == "1") {
+  if (metadata_["STANDALONE"] == "1") {
     return runner_->flattened_run(std::move(inputs), stream_handle);
   } else {
     return runner_->boxed_run(std::move(inputs), stream_handle);

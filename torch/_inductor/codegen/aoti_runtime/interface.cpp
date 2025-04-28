@@ -2,7 +2,7 @@
 
 #include <torch/csrc/inductor/aoti_runtime/interface.h>
 #include <torch/csrc/inductor/aoti_runtime/model_container.h>
-#ifdef AOTI_LIBTORCH_FREE
+#ifdef AOTI_STANDALONE
 #include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
 #endif
 
@@ -155,7 +155,7 @@ AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
     size_t num_outputs,
     AOTInductorStreamHandle stream_handle,
     AOTIProxyExecutorHandle proxy_executor_handle) {
-#ifdef AOTI_LIBTORCH_FREE
+#ifdef AOTI_STANDALONE
   auto* container =
       reinterpret_cast<torch::aot_inductor::AOTInductorModelContainer*>(
           container_handle);

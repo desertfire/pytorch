@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef AOTI_LIBTORCH_FREE
+#ifdef AOTI_STANDALONE
 #include <torch/csrc/inductor/aoti_standalone/cuda/c_shim_cuda.h>
 #include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 #else

@@ -714,7 +714,7 @@ def _get_glibcxx_abi_build_flags() -> list[str]:
 def _get_torch_cpp_wrapper_definition() -> list[str]:
     macros = ["TORCH_INDUCTOR_CPP_WRAPPER", "STANDALONE_TORCH_HEADER"]
     if config.aot_inductor.codegen_standalone:
-        macros.append("AOTI_LIBTORCH_FREE")
+        macros.append("AOTI_STANDALONE")
     return macros
 
 

@@ -1717,7 +1717,7 @@ class AotCodeCompiler:
 
             metadata = config.aot_inductor.metadata
             metadata["AOTI_DEVICE_KEY"] = device_type
-            metadata["LIBTORCH_FREE"] = (
+            metadata["STANDALONE"] = (
                 "1" if config.aot_inductor.codegen_standalone else "0"
             )
 
@@ -2572,11 +2572,11 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     call_entry_function = "return inductor_entry_cpp({});"
     extra_parse_arg = textwrap.dedent(
         """
-        #ifdef AOTI_LIBTORCH_FREE
+        #ifdef AOTI_STANDALONE
         #include <torch/csrc/inductor/aoti_standalone/c_shim.h>
         #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
-        #endif // AOTI_LIBTORCH_FREE
+        #endif // AOTI_STANDALONE
 
         static inline std::vector<AtenTensorHandle> unpack_tensor_handle_list(PyObject* pyvec) {{
             std::vector<AtenTensorHandle> result;

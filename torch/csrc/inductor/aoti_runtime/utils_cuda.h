@@ -6,10 +6,10 @@
 // applies to other files under torch/csrc/inductor/aoti_runtime/.
 
 #ifdef USE_CUDA
-#ifdef AOTI_LIBTORCH_FREE
+#ifdef AOTI_STANDALONE
 #include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 
-#else // AOTI_LIBTORCH_FREE
+#else // AOTI_STANDALONE
 #include <torch/csrc/inductor/aoti_runtime/utils.h>
 
 #include <cuda.h>
@@ -60,5 +60,5 @@ class AOTICudaStreamGuard {
 };
 
 } // namespace torch::aot_inductor
-#endif // AOTI_LIBTORCH_FREE
+#endif // AOTI_STANDALONE
 #endif // USE_CUDA
