@@ -30,7 +30,7 @@
 #include <c10/util/Half.h>
 #include <c10/util/TypeCast.h>
 #ifdef AOTI_STANDALONE
-#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
 #else
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #endif // AOTI_STANDALONE

@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
 
 // Define AOTI_STANDALONE here to avoid redefined symbols seen by linter
 #ifndef AOTI_STANDALONE

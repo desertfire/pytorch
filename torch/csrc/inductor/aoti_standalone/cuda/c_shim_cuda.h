@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef USE_CUDA
-#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
 
 #ifdef __cplusplus
 extern "C" {

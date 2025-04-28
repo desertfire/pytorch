@@ -2573,7 +2573,7 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     extra_parse_arg = textwrap.dedent(
         """
         #ifdef AOTI_STANDALONE
-        #include <torch/csrc/inductor/aoti_standalone/c_shim.h>
+        #include <torch/csrc/inductor/aoti_standalone/c/shim.h>
         #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
         #endif // AOTI_STANDALONE

@@ -12,7 +12,7 @@
 // C ABI defined in torch/csrc/inductor/aoti_torch/c/shim.h. The same rule
 // applies to other files under torch/csrc/inductor/aoti_runtime/.
 #ifdef AOTI_STANDALONE
-#include <torch/csrc/inductor/aoti_standalone/c_shim.h>
+#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
 #else
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #endif // AOTI_STANDALONE
