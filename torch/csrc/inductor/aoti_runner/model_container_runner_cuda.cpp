@@ -41,14 +41,14 @@ std::vector<at::Tensor> AOTIModelContainerRunnerCuda::run_with_cuda_stream(
   return run(inputs, reinterpret_cast<void*>(cuda_stream.stream()));
 }
 
-std::vector<at::Tensor> AOTIModelContainerRunnerCuda::flattened_run(
+std::vector<at::Tensor> AOTIModelContainerRunnerCuda::slim_tensor_run(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle) {
   if (stream_handle == nullptr) {
     at::cuda::CUDAStream cuda_stream = c10::cuda::getCurrentCUDAStream();
     stream_handle = reinterpret_cast<void*>(cuda_stream.stream());
   }
-  return flattened_run_impl(std::move(inputs), stream_handle, deleter);
+  return slim_tensor_run_impl(std::move(inputs), stream_handle, deleter);
 }
 
 namespace {

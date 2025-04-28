@@ -148,13 +148,14 @@ inline AOTITorchError aoti_torch_empty_strided(
     AtenTensorHandle* ret_new_tensor) {
   torch::native::standalone::MiniIntArrayRef sizes(sizes_ptr, ndim);
   torch::native::standalone::MiniIntArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new torch::native::standalone::SlimTensor(create_empty_tensor(
-      sizes,
-      strides,
-      static_cast<torch::native::standalone::ScalarType>(dtype),
-      {static_cast<torch::native::standalone::DeviceType>(device_type),
-       static_cast<torch::native::standalone::DeviceIndex>(device_index)},
-      0));
+  *ret_new_tensor =
+      new torch::native::standalone::SlimTensor(create_empty_tensor(
+          sizes,
+          strides,
+          static_cast<torch::native::standalone::ScalarType>(dtype),
+          {static_cast<torch::native::standalone::DeviceType>(device_type),
+           static_cast<torch::native::standalone::DeviceIndex>(device_index)},
+          0));
   return AOTI_TORCH_SUCCESS;
 }
 

@@ -30,7 +30,7 @@ class TORCH_CUDA_CPP_API AOTIModelContainerRunnerCuda
       const std::vector<at::Tensor>& inputs,
       const at::cuda::CUDAStream& cuda_stream);
 
-  std::vector<at::Tensor> flattened_run(
+  std::vector<at::Tensor> slim_tensor_run(
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr) override;
 };

@@ -35,7 +35,7 @@ class TORCH_API AOTIModelContainerRunner {
 
   // inputs and outputs are flattened, used for calling from
   // AtenTensor to SlimTensor
-  virtual std::vector<at::Tensor> flattened_run(
+  virtual std::vector<at::Tensor> slim_tensor_run(
       std::vector<at::Tensor>&& inputs,
       void* stream_handle = nullptr);
 
@@ -76,7 +76,7 @@ class TORCH_API AOTIModelContainerRunner {
       std::vector<AtenTensorHandle>& input_handles,
       void* stream_handle);
 
-  std::vector<at::Tensor> flattened_run_impl(
+  std::vector<at::Tensor> slim_tensor_run_impl(
       std::vector<at::Tensor>&& inputs,
       void* stream_handle,
       const std::function<void(void*)>& deleter);
@@ -87,8 +87,6 @@ class TORCH_API AOTIModelContainerRunner {
   decltype(&AOTInductorModelContainerGetNumOutputs) get_num_outputs_func_{
       nullptr};
   decltype(&AOTInductorModelContainerRun) run_func_{nullptr};
-  decltype(&AOTInductorModelContainerFlattenedRunSingleThreaded)
-      flattened_run_func_{nullptr};
   decltype(&AOTInductorModelContainerGetNumConstants) get_num_constants_func_{
       nullptr};
   decltype(&AOTInductorModelContainerGetConstantName) get_constant_name_func_{

@@ -72,16 +72,6 @@ AOTIRuntimeError AOTInductorModelContainerRunSingleThreaded(
     AOTInductorStreamHandle stream_handle,
     AOTIProxyExecutorHandle proxy_executor_handle);
 
-// Runs the inference with flattened inputs and outputs.
-AOTIRuntimeError AOTInductorModelContainerFlattenedRunSingleThreaded(
-    AOTInductorModelContainerHandle container_handle,
-    void** input_handles,
-    size_t num_inputs,
-    void** output_handles,
-    size_t num_outputs,
-    AOTInductorStreamHandle stream_handle,
-    AOTIProxyExecutorHandle proxy_executor_handle);
-
 // Retrieves the number of constants for the model.
 AOTIRuntimeError AOTInductorModelContainerGetNumConstants(
     AOTInductorModelContainerHandle container_handle,

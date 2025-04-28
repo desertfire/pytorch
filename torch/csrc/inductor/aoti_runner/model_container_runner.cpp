@@ -2,6 +2,7 @@
 #include <ATen/DynamicLibrary.h>
 
 #include <torch/csrc/inductor/aoti_runner/model_container_runner.h>
+#include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
 #include <torch/csrc/inductor/aoti_torch/oss_proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/tensor_converter.h>
 
@@ -102,9 +103,6 @@ consider rebuild your model with the latest AOTInductor.");
   TRY_LOAD_SYMBOL(
       update_user_managed_constant_buffer_func_,
       "AOTInductorModelContainerUpdateUserManagedConstantBuffer");
-  TRY_LOAD_SYMBOL(
-      flattened_run_func_,
-      "AOTInductorModelContainerFlattenedRunSingleThreaded");
 #undef TRY_LOAD_SYMBOL
 
   // Hack to find the json file name from the model so file
@@ -175,48 +173,37 @@ std::vector<at::Tensor> AOTIModelContainerRunner::boxed_run(
 
 // inputs and outputs are flattened, used for calling from
 // AtenTensor to SlimTensor
-std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
+std::vector<at::Tensor> AOTIModelContainerRunner::slim_tensor_run_impl(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle,
     const std::function<void(void*)>& deleter) {
-  if (!flattened_run_func_) {
-    throw std::runtime_error(
-        "AOTInductorModelContainerFlattenedRun is only available in the standalone mode.");
-  }
-
-  using FlattenedTensor = std::tuple<
-      void*, // data_ptr
-      const int64_t*, // sizes
-      const int64_t*, // strides
-      int64_t, // dim
-      int32_t, // dtype
-      int32_t, // device_type
-      int32_t, // device_index
-      int64_t // storage_offset
-      >;
-
-  std::vector<void*> input_handles;
+  std::vector<AtenTensorHandle> input_handles;
   input_handles.reserve(inputs.size());
   for (const at::Tensor& tensor : std::move(inputs)) {
-    // Unsafe allocation, object will be released by
-    // AOTInductorModelContainerFlattenedRun.
-    input_handles.push_back(static_cast<void*>(new FlattenedTensor(
-        tensor.data_ptr(),
-        tensor.sizes().data(),
-        tensor.strides().data(),
-        tensor.dim(),
-        static_cast<int32_t>(tensor.scalar_type()),
-        static_cast<int32_t>(tensor.device().type()),
-        static_cast<int32_t>(tensor.device().index()),
-        tensor.storage_offset())));
+    // Unsafe allocation, object will be released by run_func_
+    // reinterpret_cast to AtenTensorHandle to match the interface
+    input_handles.push_back(reinterpret_cast<AtenTensorHandle>(
+        new torch::native::standalone::SlimTensor(create_tensor_from_blob(
+            tensor.data_ptr(),
+            torch::native::standalone::MiniIntArrayRef(
+                tensor.sizes().data(), tensor.sizes().size()),
+            torch::native::standalone::MiniIntArrayRef(
+                tensor.strides().data(), tensor.strides().size()),
+            static_cast<torch::native::standalone::ScalarType>(
+                tensor.scalar_type()),
+            {static_cast<torch::native::standalone::DeviceType>(
+                 tensor.device().type()),
+             static_cast<torch::native::standalone::DeviceIndex>(
+                 tensor.device().index())},
+            tensor.storage_offset()))));
   }
 
   size_t num_outputs = 0;
   AOTI_RUNTIME_ERROR_CODE_CHECK(
       get_num_outputs_func_(container_handle_, &num_outputs));
-  std::vector<void*> output_handles(num_outputs);
+  std::vector<AtenTensorHandle> output_handles(num_outputs);
 
-  AOTI_RUNTIME_ERROR_CODE_CHECK(flattened_run_func_(
+  AOTI_RUNTIME_ERROR_CODE_CHECK(run_func_(
       container_handle_,
       input_handles.data(),
       input_handles.size(),
@@ -228,32 +215,35 @@ std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run_impl(
   std::vector<at::Tensor> result;
   result.reserve(num_outputs);
   for (size_t i = 0; i < num_outputs; i++) {
-    FlattenedTensor* tuple =
-        reinterpret_cast<FlattenedTensor*>(output_handles[i]);
-    c10::IntArrayRef sizes(std::get<1>(*tuple), std::get<3>(*tuple));
-    c10::IntArrayRef strides(std::get<2>(*tuple), std::get<3>(*tuple));
+    torch::native::standalone::SlimTensor* stensor =
+        reinterpret_cast<torch::native::standalone::SlimTensor*>(
+            output_handles[i]);
+    c10::IntArrayRef sizes(stensor->sizes().data(), stensor->sizes().size());
+    c10::IntArrayRef strides(
+        stensor->strides().data(), stensor->strides().size());
     c10::Device device = c10::Device(
-        static_cast<c10::DeviceType>(std::get<5>(*tuple)),
-        static_cast<c10::DeviceIndex>(std::get<6>(*tuple)));
+        static_cast<c10::DeviceType>(stensor->device_type()),
+        static_cast<c10::DeviceIndex>(stensor->device_index()));
     c10::TensorOptions options = c10::TensorOptions().device(device).dtype(
-        static_cast<c10::ScalarType>(std::get<4>(*tuple)));
+        static_cast<c10::ScalarType>(stensor->dtype()));
 
-    result.push_back(at::for_blob(std::get<0>(*tuple), sizes)
+    result.push_back(at::for_blob(stensor->data_ptr(), sizes)
                          .strides(strides)
-                         .storage_offset(std::get<7>(*tuple))
+                         .storage_offset(stensor->storage_offset())
                          .options(options)
                          .deleter(deleter)
                          .make_tensor());
-    // Ownership has been transferred to the caller, so we need to delete here
-    delete tuple;
+    // Storage ownership has been transferred to AtenTensor
+    stensor->storage()->unsafe_set_to_non_owning();
+    delete stensor;
   }
   return result;
 }
 
-std::vector<at::Tensor> AOTIModelContainerRunner::flattened_run(
+std::vector<at::Tensor> AOTIModelContainerRunner::slim_tensor_run(
     std::vector<at::Tensor>&& inputs,
     void* stream_handle) {
-  return flattened_run_impl(std::move(inputs), stream_handle, deleter);
+  return slim_tensor_run_impl(std::move(inputs), stream_handle, deleter);
 }
 
 std::unordered_map<std::string, std::string> AOTIModelContainerRunner::
