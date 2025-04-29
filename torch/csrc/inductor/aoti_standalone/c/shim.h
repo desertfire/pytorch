@@ -1,9 +1,9 @@
 #pragma once
 
-// This header mimics APIs in aoti_torch/c/shim.h in a standalone way.
-//
+// This header mimics APIs in aoti_torch/c/shim.h in a standalone way
+
+#include <torch/csrc/inductor/aoti_standalone/c/shim_dtype.h>
 #include <torch/csrc/inductor/aoti_standalone/layout.h>
-#include <torch/csrc/inductor/aoti_standalone/scalar_type.h>
 #include <torch/csrc/inductor/aoti_standalone/slim_tensor.h>
 
 // The following files are implemented in a header-only way
@@ -132,7 +132,7 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
           data,
           sizes,
           strides,
-          static_cast<torch::native::standalone::ScalarType>(dtype),
+          static_cast<c10::ScalarType>(dtype),
           {static_cast<torch::native::standalone::DeviceType>(device_type),
            static_cast<torch::native::standalone::DeviceIndex>(device_index)},
           storage_offset));
@@ -152,7 +152,7 @@ inline AOTITorchError aoti_torch_empty_strided(
       new torch::native::standalone::SlimTensor(create_empty_tensor(
           sizes,
           strides,
-          static_cast<torch::native::standalone::ScalarType>(dtype),
+          static_cast<c10::ScalarType>(dtype),
           {static_cast<torch::native::standalone::DeviceType>(device_type),
            static_cast<torch::native::standalone::DeviceIndex>(device_index)},
           0));

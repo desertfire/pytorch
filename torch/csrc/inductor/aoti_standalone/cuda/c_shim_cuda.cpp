@@ -82,11 +82,11 @@ AOTITorchError aoti_torch_cuda_mm_out(
     AtenTensorHandle self,
     AtenTensorHandle mat2) {
   if (self->dim() == 2 && mat2->dim() == 2 &&
-      self->dtype() == torch::native::standalone::ScalarType::_float32 &&
-      mat2->dtype() == torch::native::standalone::ScalarType::_float32) {
-    torch::native::standalone::sgemm_cublas(*out, *self, *mat2, *out, 0.0f, 1.0f);
-  } else {
-    throw std::runtime_error("matmul only supports float32 tensors");
+      self->dtype() == c10::ScalarType::Float &&
+      mat2->dtype() == c10::ScalarType::Float) {
+    torch::native::standalone::sgemm_cublas(*out, *self, *mat2, *out,
+0.0f, 1.0f); } else { throw std::runtime_error("matmul only supports float32
+tensors");
   }
   return AOTI_TORCH_SUCCESS;
 }
@@ -99,10 +99,10 @@ AOTITorchError aoti_torch_cuda_addmm_out(
     AtenTensorHandle mat2,
     double beta,
     double alpha) {
-  if (out->dtype() == torch::native::standalone::ScalarType::_float32 &&
-      self->dtype() == torch::native::standalone::ScalarType::_float32 &&
-      mat1->dtype() == torch::native::standalone::ScalarType::_float32 &&
-      mat2->dtype() == torch::native::standalone::ScalarType::_float32) {
+  if (out->dtype() == c10::ScalarType::Float &&
+      self->dtype() == c10::ScalarType::Float &&
+      mat1->dtype() == c10::ScalarType::Float &&
+      mat2->dtype() == c10::ScalarType::Float) {
     torch::native::standalone::sgemm_cublas(
         *out, *mat1, *mat2, *self, beta, alpha);
   } else {

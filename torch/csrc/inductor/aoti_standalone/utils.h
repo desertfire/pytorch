@@ -2,8 +2,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include <c10/core/ScalarType.h>
 #include <torch/csrc/inductor/aoti_standalone/array_ref.h>
-#include <torch/csrc/inductor/aoti_standalone/scalar_type.h>
 
 using AOTITorchError = int32_t;
 #define AOTI_TORCH_SUCCESS 0
@@ -25,7 +25,7 @@ using AOTITorchError = int32_t;
   return AOTI_TORCH_SUCCESS;
 
 namespace torch::native::standalone {
-inline size_t compute_numel(MiniIntArrayRef sizes) {
+inline size_t compute_numel(const MiniIntArrayRef& sizes) {
   int64_t numel = 1;
   for (auto& s : sizes) {
     numel *= s;
@@ -33,9 +33,10 @@ inline size_t compute_numel(MiniIntArrayRef sizes) {
   return numel;
 }
 
-inline size_t compute_nbytes(MiniIntArrayRef sizes, ScalarType dtype) {
-  return compute_numel(sizes) *
-      SCALAR_TYPE_TO_BYTESIZE[static_cast<int32_t>(dtype)];
+inline size_t compute_nbytes(
+    const MiniIntArrayRef& sizes,
+    c10::ScalarType dtype) {
+  return compute_numel(sizes) * c10::elementSize(dtype);
 }
 
 } // namespace torch::native::standalone

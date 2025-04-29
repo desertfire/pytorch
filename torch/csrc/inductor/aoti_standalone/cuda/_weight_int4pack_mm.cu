@@ -1019,7 +1019,7 @@ torch::native::standalone::SlimTensor empty_tensor(
     int device_index,
     int64_t storage_offset) {
   return create_empty_tensor(sizes, strides,
-    static_cast<torch::native::standalone::ScalarType>(dtype),
+    static_cast<c10::ScalarType>(dtype),
     torch::native::standalone::Device{
       static_cast<torch::native::standalone::DeviceType>(device_type),
       device_index
@@ -1077,12 +1077,12 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(B_innerKTiles == 2 || B_innerKTiles == 4 || B_innerKTiles == 8);
 
   // A is standard row major
-  TORCH_CHECK(A.dtype() == torch::native::standalone::ScalarType::_bfloat16);
+  TORCH_CHECK(A.dtype() == c10::ScalarType::BFloat16);
   TORCH_CHECK(A.is_contiguous());
   TORCH_CHECK(A.dim() == 2);
 
   // B has B_innerKTiles k-tiles in the innermost dimension
-  TORCH_CHECK(B.dtype() == torch::native::standalone::ScalarType::_int32);
+  TORCH_CHECK(B.dtype() == c10::ScalarType::Int);
   TORCH_CHECK(B.is_contiguous());
   TORCH_CHECK(B.dim() == 4);
   TORCH_CHECK(B.size(1) == k / (B_innerKTiles * kKTileSize));
@@ -1106,7 +1106,7 @@ T _weight_int4pack_mm_cuda(
   auto C_final = empty_tensor<torch::native::standalone::SlimTensor>(
     {m, n},
     {n, 1},
-    (int)torch::native::standalone::ScalarType::_bfloat16,
+    (int)c10::ScalarType::BFloat16,
     (int)torch::native::standalone::DeviceType::cuda,
     0,
     0

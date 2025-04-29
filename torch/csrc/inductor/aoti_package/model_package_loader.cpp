@@ -444,6 +444,8 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
           so_path = output_path_str;
         }
       }
+
+      delete[] filename;
     }
   }
 

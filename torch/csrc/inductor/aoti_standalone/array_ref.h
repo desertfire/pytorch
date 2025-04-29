@@ -25,7 +25,6 @@ class MaybeOwningArrayRef final {
 
   using BaseT = std::remove_const_t<T>;
   SharedPtr<BaseT> owning_data_;
-  // decay_const_t<T>* owning_data_ = nullptr;
 
  public:
   /// @name Constructors

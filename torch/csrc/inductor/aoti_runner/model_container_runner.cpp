@@ -189,8 +189,7 @@ std::vector<at::Tensor> AOTIModelContainerRunner::slim_tensor_run_impl(
                 tensor.sizes().data(), tensor.sizes().size()),
             torch::native::standalone::MiniIntArrayRef(
                 tensor.strides().data(), tensor.strides().size()),
-            static_cast<torch::native::standalone::ScalarType>(
-                tensor.scalar_type()),
+            static_cast<c10::ScalarType>(tensor.scalar_type()),
             {static_cast<torch::native::standalone::DeviceType>(
                  tensor.device().type()),
              static_cast<torch::native::standalone::DeviceIndex>(
