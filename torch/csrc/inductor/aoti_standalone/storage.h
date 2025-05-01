@@ -10,9 +10,10 @@
 #endif
 
 #include <torch/csrc/inductor/aoti_standalone/shared_ptr.h>
-#include <torch/csrc/inductor/aoti_standalone/utils.h>
-
 namespace torch::native::standalone {
+namespace {
+void noop(void*) {}
+} // namespace
 
 const c10::Device CPU_DEVICE = c10::Device(c10::DeviceType::CPU, 0);
 
@@ -23,12 +24,12 @@ struct DeviceTraits;
 // CPU specialization
 template <>
 struct DeviceTraits<c10::DeviceType::CPU> {
-  static void* allocate(size_t nbytes, const c10::Device& device) {
+  static void* allocate(size_t nbytes) {
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
     return malloc(nbytes);
   }
 
-  static void free(void* ptr, const c10::Device& device) {
+  static void free(void* ptr) {
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc)
     ::free(ptr);
   }
@@ -44,18 +45,17 @@ struct DeviceTraits<c10::DeviceType::CPU> {
 };
 
 // CUDA specialization
+// DeviceGuard has been taken care of by the AOTI generated code
 #ifdef USE_CUDA
 template <>
 struct DeviceTraits<c10::DeviceType::CUDA> {
-  static void* allocate(size_t nbytes, const c10::Device& device) {
+  static void* allocate(size_t nbytes) {
     void* data = nullptr;
-    AOTICudaGuard guard(device.index());
     throw_cuda_error(cudaMalloc(&data, nbytes));
     return data;
   }
 
-  static void free(void* ptr, const c10::Device& device) {
-    AOTICudaGuard guard(device.index());
+  static void free(void* ptr) {
     print_cuda_error(cudaFree(ptr));
   }
 
@@ -84,11 +84,11 @@ struct DeviceTraits<c10::DeviceType::CUDA> {
 #else
 template <>
 struct DeviceTraits<c10::DeviceType::CUDA> {
-  static void* allocate(size_t nbytes, const c10::Device& device) {
+  static void* allocate(size_t nbytes) {
     throw std::runtime_error("Build with USE_CUDA=1 to enable CUDA support");
   }
 
-  static void free(void* ptr, const c10::Device& device) {
+  static void free(void* ptr) {
     std::cerr << "Build with USE_CUDA=1 to enable CUDA support\n";
   }
 
@@ -109,19 +109,21 @@ struct DeviceTraits<c10::DeviceType::CUDA> {
 class MaybeOwningStorage {
  public:
   MaybeOwningStorage(size_t nbytes, const c10::Device& device)
-      : device_(device), owning_(true) {
+      : device_(device) {
     // Allocating memory here so owning_ has to be true.
     if (device.is_cpu()) {
-      data_ = DeviceTraits<c10::DeviceType::CPU>::allocate(nbytes, device);
+      data_ = DeviceTraits<c10::DeviceType::CPU>::allocate(nbytes);
+      deleter_ = DeviceTraits<c10::DeviceType::CPU>::free;
     } else if (device.is_cuda()) {
-      data_ = DeviceTraits<c10::DeviceType::CUDA>::allocate(nbytes, device);
+      data_ = DeviceTraits<c10::DeviceType::CUDA>::allocate(nbytes);
+      deleter_ = DeviceTraits<c10::DeviceType::CUDA>::free;
     } else {
       throw std::runtime_error("Unsupported device type");
     }
   }
 
   MaybeOwningStorage(void* data, const c10::Device& device)
-      : data_(data), device_(device), owning_(false) {
+      : data_(data), device_(device), deleter_(noop) {
     // data pointer is not owned by this object
   }
 
@@ -132,12 +134,8 @@ class MaybeOwningStorage {
   MaybeOwningStorage(const MaybeOwningStorage&) = delete;
 
   ~MaybeOwningStorage() {
-    if (owning_ && data_ != nullptr) {
-      if (device_.is_cpu()) {
-        DeviceTraits<c10::DeviceType::CPU>::free(data_, device_);
-      } else if (device_.is_cuda()) {
-        DeviceTraits<c10::DeviceType::CUDA>::free(data_, device_);
-      }
+    if (data_ != nullptr) {
+      deleter_(data_);
     }
   }
 
@@ -151,7 +149,6 @@ class MaybeOwningStorage {
     }
 
     void* src_ptr = static_cast<char*>(other->data_) + storage_offset;
-
     if (device_.is_cpu() && other->device_.is_cpu()) {
       // CPU to CPU copy
       DeviceTraits<c10::DeviceType::CPU>::memcpy(
@@ -185,13 +182,13 @@ class MaybeOwningStorage {
     // into at::Tensor, which means the storage ownership should be stolen by
     // at::Tensor. When all the SlimTensors referencing the storage are
     // destroyed, the storage should NOT be freed.
-    owning_ = false;
+    deleter_ = noop;
   }
 
  private:
   void* data_ = nullptr;
-  c10::Device device_;
-  bool owning_;
+  c10::Device device_ = CPU_DEVICE;
+  std::function<void(void*)> deleter_;
 };
 
 using Storage = SharedPtr<MaybeOwningStorage>;
