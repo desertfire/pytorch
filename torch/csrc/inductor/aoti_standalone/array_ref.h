@@ -38,10 +38,7 @@ class MaybeOwningArrayRef final {
   constexpr MaybeOwningArrayRef(const T& OneElt) : data_(&OneElt), length_(1) {}
 
   /// Construct an MaybeOwningArrayRef from a pointer and length.
-  constexpr MaybeOwningArrayRef(T* data, size_t length)
-      : data_(data), length_(length) {}
-
-  MaybeOwningArrayRef(T* data, size_t length, bool owning)
+  constexpr MaybeOwningArrayRef(T* data, size_t length, bool owning = false)
       : data_(data), length_(length) {
     if (owning) {
       owning_data_ = SharedPtr<BaseT>(new BaseT[length_]);

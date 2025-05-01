@@ -43,4 +43,8 @@ inline size_t compute_nbytes(
     c10::ScalarType dtype) {
   return compute_numel(sizes) * c10::elementSize(dtype);
 }
+
+inline size_t compute_nbytes(size_t numel, c10::ScalarType dtype) {
+  return numel * c10::elementSize(dtype);
+}
 } // namespace torch::native::standalone

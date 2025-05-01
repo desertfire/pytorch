@@ -43,7 +43,7 @@ struct DeviceTraits<c10::DeviceType::CPU> {
   }
 };
 
-// CUDA specialization (conditionally compiled)
+// CUDA specialization
 #ifdef USE_CUDA
 template <>
 struct DeviceTraits<c10::DeviceType::CUDA> {
@@ -184,8 +184,7 @@ class MaybeOwningStorage {
     // standalone AOTI from pytorch, we need to convert the output SlimTensor
     // into at::Tensor, which means the storage ownership should be stolen by
     // at::Tensor. When all the SlimTensors referencing the storage are
-    // destroyed, the storage should NOT be freed. It should be freed when the
-    // at::Tensor is destroyed.
+    // destroyed, the storage should NOT be freed.
     owning_ = false;
   }
 

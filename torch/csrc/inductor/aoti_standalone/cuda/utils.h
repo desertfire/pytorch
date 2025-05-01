@@ -142,10 +142,10 @@ class AOTICudaStream {
   }
 
   // Move assignment
-  AOTICudaStream& operator=(AOTICudaStream&& other) {
+  AOTICudaStream& operator=(AOTICudaStream&& other) noexcept {
     if (this != &other) {
       if (stream_) {
-        throw_cuda_error(cudaStreamDestroy(stream_));
+        print_cuda_error(cudaStreamDestroy(stream_));
       }
       stream_ = other.stream_;
       other.stream_ = nullptr;
