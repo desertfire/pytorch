@@ -50,3 +50,6 @@ size
 
 # torch/standalone/macros/Export.h
 C10_API
+
+# torch/standalone/util/Exception.h
+TORCH_CHECK

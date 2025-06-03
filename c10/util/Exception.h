@@ -6,6 +6,7 @@
 #include <c10/util/Backtrace.h>
 #include <c10/util/Lazy.h>
 #include <c10/util/StringUtil.h>
+#include <torch/standalone/util/Exception.h>
 
 #include <cstdint>
 #include <exception>
@@ -365,27 +366,6 @@ C10_API std::string GetExceptionString(const std::exception& e);
 // https://stackoverflow.com/questions/5134523/msvc-doesnt-expand-va-args-correctly
 #define C10_EXPAND_MSVC_WORKAROUND(x) x
 
-// On nvcc, C10_UNLIKELY thwarts missing return statement analysis.  In cases
-// where the unlikely expression may be a constant, use this macro to ensure
-// return statement analysis keeps working (at the cost of not getting the
-// likely/unlikely annotation on nvcc).
-// https://github.com/pytorch/pytorch/issues/21418
-//
-// Currently, this is only used in the error reporting macros below.  If you
-// want to use it more generally, move me to Macros.h
-//
-// TODO: Brian Vaughan observed that we might be able to get this to work on
-// nvcc by writing some sort of C++ overload that distinguishes constexpr inputs
-// from non-constexpr.  Since there isn't any evidence that losing C10_UNLIKELY
-// in nvcc is causing us perf problems, this is not yet implemented, but this
-// might be an interesting piece of C++ code for an intrepid bootcamper to
-// write.
-#if defined(__CUDACC__)
-#define C10_UNLIKELY_OR_CONST(e) e
-#else
-#define C10_UNLIKELY_OR_CONST(e) C10_UNLIKELY(e)
-#endif
-
 // ----------------------------------------------------------------------------
 // Error reporting macros
 // ----------------------------------------------------------------------------
@@ -471,42 +451,16 @@ C10_API std::string GetExceptionString(const std::exception& e);
   TORCH_CHECK_WITH_MSG(error_t, cond, "", __VA_ARGS__)
 
 #ifdef STRIP_ERROR_MESSAGES
-#define TORCH_CHECK_MSG(cond, type, ...) \
-  (#cond #type " CHECK FAILED at " C10_STRINGIZE(__FILE__))
 #define TORCH_CHECK_WITH_MSG(error_t, cond, type, ...)                \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {                               \
     C10_THROW_ERROR(Error, TORCH_CHECK_MSG(cond, type, __VA_ARGS__)); \
   }
-#else
-
-namespace c10::detail {
-template <typename... Args>
-decltype(auto) torchCheckMsgImpl(const char* /*msg*/, const Args&... args) {
-  return ::c10::str(args...);
-}
-inline C10_API const char* torchCheckMsgImpl(const char* msg) {
-  return msg;
-}
-// If there is just 1 user-provided C-string argument, use it.
-inline C10_API const char* torchCheckMsgImpl(
-    const char* /*msg*/,
-    const char* args) {
-  return args;
-}
-} // namespace c10::detail
-
-#define TORCH_CHECK_MSG(cond, type, ...)                   \
-  (::c10::detail::torchCheckMsgImpl(                       \
-      "Expected " #cond                                    \
-      " to be true, but got false.  "                      \
-      "(Could this error message be improved?  If so, "    \
-      "please report an enhancement request to PyTorch.)", \
-      ##__VA_ARGS__))
+#else // STRIP_ERROR_MESSAGES
 #define TORCH_CHECK_WITH_MSG(error_t, cond, type, ...)                  \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {                                 \
     C10_THROW_ERROR(error_t, TORCH_CHECK_MSG(cond, type, __VA_ARGS__)); \
   }
-#endif
+#endif // STRIP_ERROR_MESSAGES
 
 namespace c10::detail {
 
@@ -549,44 +503,10 @@ namespace c10::detail {
 
 } // namespace c10::detail
 
-#ifdef STANDALONE_TORCH_HEADER
-
-// TORCH_CHECK throws std::runtime_error instead of c10::Error which is
-// useful when certain headers are used in a libtorch-independent way,
-// e.g. when Vectorized<T> is used in AOTInductor generated code.
+#ifndef TORCH_STANDALONE
 #ifdef STRIP_ERROR_MESSAGES
-#define TORCH_CHECK(cond, ...)                \
-  if (C10_UNLIKELY_OR_CONST(!(cond))) {       \
-    throw std::runtime_error(TORCH_CHECK_MSG( \
-        cond,                                 \
-        "",                                   \
-        __func__,                             \
-        ", ",                                 \
-        __FILE__,                             \
-        ":",                                  \
-        __LINE__,                             \
-        ", ",                                 \
-        __VA_ARGS__));                        \
-  }
-#else
-#define TORCH_CHECK(cond, ...)                \
-  if (C10_UNLIKELY_OR_CONST(!(cond))) {       \
-    throw std::runtime_error(TORCH_CHECK_MSG( \
-        cond,                                 \
-        "",                                   \
-        __func__,                             \
-        ", ",                                 \
-        __FILE__,                             \
-        ":",                                  \
-        __LINE__,                             \
-        ", ",                                 \
-        ##__VA_ARGS__));                      \
-  }
-#endif
-
-#else
-
-#ifdef STRIP_ERROR_MESSAGES
+#define TORCH_CHECK_MSG(cond, type, ...) \
+  (#cond #type " CHECK FAILED at " C10_STRINGIZE(__FILE__))
 #define TORCH_CHECK(cond, ...)                   \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {          \
     ::c10::detail::torchCheckFail(               \
@@ -596,6 +516,28 @@ namespace c10::detail {
         TORCH_CHECK_MSG(cond, "", __VA_ARGS__)); \
   }
 #else
+#define TORCH_CHECK_MSG(cond, type, ...)                   \
+  (::c10::detail::torchCheckMsgImpl(                       \
+      "Expected " #cond                                    \
+      " to be true, but got false.  "                      \
+      "(Could this error message be improved?  If so, "    \
+      "please report an enhancement request to PyTorch.)", \
+      ##__VA_ARGS__))
+namespace c10::detail {
+template <typename... Args>
+decltype(auto) torchCheckMsgImpl(const char* /*msg*/, const Args&... args) {
+  return ::c10::str(args...);
+}
+inline C10_API const char* torchCheckMsgImpl(const char* msg) {
+  return msg;
+}
+// If there is just 1 user-provided C-string argument, use it.
+inline C10_API const char* torchCheckMsgImpl(
+    const char* /*msg*/,
+    const char* args) {
+  return args;
+}
+} // namespace c10::detail
 #define TORCH_CHECK(cond, ...)                     \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {            \
     ::c10::detail::torchCheckFail(                 \
@@ -604,9 +546,8 @@ namespace c10::detail {
         static_cast<uint32_t>(__LINE__),           \
         TORCH_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
   }
-#endif
-
-#endif
+#endif // STRIP_ERROR_MESSAGES
+#endif // TORCH_STANDALONE
 
 // An utility macro that does what `TORCH_CHECK` does if compiled in the host
 // code, otherwise does nothing. Supposed to be used in the code shared between

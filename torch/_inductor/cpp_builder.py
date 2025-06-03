@@ -745,7 +745,7 @@ def _get_glibcxx_abi_build_flags() -> list[str]:
 
 
 def _get_torch_cpp_wrapper_definition() -> list[str]:
-    return ["TORCH_INDUCTOR_CPP_WRAPPER", "STANDALONE_TORCH_HEADER"]
+    return ["TORCH_INDUCTOR_CPP_WRAPPER", "TORCH_STANDALONE"]
 
 
 def _use_custom_generated_macros() -> list[str]:

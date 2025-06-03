@@ -2,6 +2,8 @@
 #define C10_MACROS_MACROS_H_
 #include <cassert>
 
+#include <torch/standalone/macros/Macros.h>
+
 /* Main entry for c10/macros.
  *
  * In your code, include c10/macros/Macros.h directly, instead of individual
@@ -97,9 +99,6 @@
 
 #define C10_MACRO_EXPAND(args) args
 
-#define C10_STRINGIZE_IMPL(x) #x
-#define C10_STRINGIZE(x) C10_STRINGIZE_IMPL(x)
-
 /**
  * C10_ANONYMOUS_VARIABLE(str) introduces a new identifier which starts with
  * str and ends with a unique number.
@@ -175,26 +174,6 @@ using namespace c10::hip;
 namespace at::xpu {
 using namespace c10::xpu;
 } // namespace at::xpu
-
-// C10_LIKELY/C10_UNLIKELY
-//
-// These macros provide parentheses, so you can use these macros as:
-//
-//    if C10_LIKELY(some_expr) {
-//      ...
-//    }
-//
-// NB: static_cast to boolean is mandatory in C++, because __builtin_expect
-// takes a long argument, which means you may trigger the wrong conversion
-// without it.
-//
-#if defined(__GNUC__) || defined(__ICL) || defined(__clang__)
-#define C10_LIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 1))
-#define C10_UNLIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 0))
-#else
-#define C10_LIKELY(expr) (expr)
-#define C10_UNLIKELY(expr) (expr)
-#endif
 
 /// C10_NOINLINE - Functions whose declaration is annotated with this will not
 /// be inlined.
