@@ -1292,7 +1292,7 @@ class aot_inductor:
     force_mmap_weights: bool = False
 
     package: bool = False
-    package_cpp_only: bool = False
+    package_cpp_only: bool = os.environ.get("AOT_INDUCTOR_PACKAGE_CPP_ONLY", "0") == "1"
 
     # Dictionary of metadata users might want to save to pass to the runtime.
     # TODO: Move this somewhere else, since it's no longer really a config
@@ -1350,6 +1350,11 @@ class aot_inductor:
     custom_ops_to_c_shims: dict[torch._ops.OpOverload, list[str]] = {}
     # custom op libs that have implemented C shim wrappers
     custom_op_libs: Optional[list[str]] = None
+
+    # Experimental.  Controls whether to generate model code in a standalone way.
+    codegen_standalone: bool = (
+        os.environ.get("AOT_INDUCTOR_CODEGEN_STANDALONE", "0") == "1"
+    )
 
 
 class cuda:

@@ -767,6 +767,7 @@ cc_library(
     deps = [
         ":caffe2",
         ":torch_headers",
+        ":torch_standalone_headers",
         "@kineto",
         "@cpp-httplib",
         "@nlohmann",

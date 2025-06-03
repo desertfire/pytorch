@@ -6,6 +6,7 @@
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
+#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 #endif
 
 #include <torch/standalone/core/Device.h>

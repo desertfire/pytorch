@@ -1612,6 +1612,12 @@ class CudaKernelParamCache:
 
 
 class AotCodeCompiler:
+    """
+    AOTCodeCompiler is a class that handles the compilation of AOTInductor
+    kernels. It is responsible for generating the kernel and wrapper code,
+    compiling and packaging them.
+    """
+
     @classmethod
     def compile(
         cls,
@@ -1824,6 +1830,9 @@ class AotCodeCompiler:
 
             metadata = config.aot_inductor.metadata
             metadata["AOTI_DEVICE_KEY"] = device_type
+            metadata["STANDALONE"] = (
+                "1" if config.aot_inductor.codegen_standalone else "0"
+            )
 
             # Save user provided metadata
             meta_json = str(
@@ -1964,6 +1973,27 @@ class AotCodeCompiler:
 
             log.debug("aot wrapper compilation command: %s", wrapper_compile_cmd)
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
+
+            cuda_utils_o: list[str] = []
+            if config.aot_inductor.codegen_standalone and device_type == "cuda":
+                # TODO: seletively add additional cuda files
+                cuda_util_files: list[str] = []
+                cuda_build_options = CppTorchDeviceOptions(
+                    compiler="nvcc",
+                    compile_only=True,
+                    **compile_command,
+                )
+                for file in cuda_util_files:
+                    cuda_builder = CppBuilder(
+                        name=file,
+                        sources=file,
+                        output_dir=str(wrapper_path_operator.parent),
+                        BuildOption=cuda_build_options,
+                    )
+                    if not config.aot_inductor.package_cpp_only:
+                        cuda_builder.build()
+                        cuda_utils_o.append(cuda_builder.get_target_file_path())
+
             if config.aot_inductor.package_cpp_only:
                 # Not doing the actual compilation here
                 compile_flags = str(
@@ -2055,7 +2085,7 @@ class AotCodeCompiler:
 
                 cubin_file = value[get_cpp_wrapper_cubin_path_name()]
                 if config.aot_inductor.emit_multi_arch_kernel:
-                    current_arch = _nvcc_arch_as_compile_option()
+                    current_arch = _nvcc_arch()
                     cmd = (
                         f"{_cuda_compiler()} -fatbin {asm_file} -o {cubin_file} "
                         # Include PTX with the minimum arch as SM80
@@ -2084,7 +2114,14 @@ class AotCodeCompiler:
                 use_relative_path=use_relative_path,
             )
 
-            obj_srcs = [wrapper_o, kernel_o, consts_o, *gpu_kernels_o, *cubins_o]
+            obj_srcs = [
+                wrapper_o,
+                kernel_o,
+                consts_o,
+                *gpu_kernels_o,
+                *cubins_o,
+                *cuda_utils_o,
+            ]
             so_builder = CppBuilder(
                 name=output_name,
                 sources=obj_srcs,
@@ -2720,7 +2757,11 @@ class CppWrapperCodeCache(CppPythonBindingsCodeCache):
     call_entry_function = "return inductor_entry_cpp({});"
     extra_parse_arg = textwrap.dedent(
         """
+        #ifdef AOTI_STANDALONE
+        #include <torch/csrc/inductor/aoti_standalone/c/shim.h>
+        #else
         #include <torch/csrc/inductor/aoti_torch/c/shim.h>
+        #endif // AOTI_STANDALONE
 
         static inline std::vector<AtenTensorHandle> unpack_tensor_handle_list(PyObject* pyvec) {{
             std::vector<AtenTensorHandle> result;
@@ -3394,7 +3435,7 @@ def _nvcc_host_compiler_options() -> list[str]:
     ]
 
 
-def _nvcc_arch_as_compile_option() -> str:
+def _nvcc_arch() -> str:
     arch = cuda_env.get_cuda_arch()
     if arch == "90":
         # Required by cutlass compilation.
@@ -3404,18 +3445,22 @@ def _nvcc_arch_as_compile_option() -> str:
     return arch
 
 
-def _nvcc_compiler_options() -> list[str]:
-    arch = _nvcc_arch_as_compile_option()
+def _nvcc_arch_as_compile_option() -> list[str]:
+    arch = _nvcc_arch()
     code = [f"sm_{arch}", f"compute_{arch}"]
     if config.cuda.enable_cuda_lto:
         code += [f"lto_{arch}"]
+    return f"gencode=arch=compute_{arch},code=[{','.join(code)}]"
+
+
+def _nvcc_compiler_options() -> list[str]:
     options = [
         "-t=0",
         "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
         "-DCUTLASS_ENABLE_SM90_EXTENDED_MMA_SHAPES=1",
         "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED",
         "-w",
-        f"-gencode=arch=compute_{arch},code=[{','.join(code)}]",
+        f"-{_nvcc_arch_as_compile_option()}",
         config.cuda.compile_opt_level,
         "-std=c++17",
         "--expt-relaxed-constexpr",
