@@ -39,6 +39,8 @@
 // to inform this header that it does not need to include the cmake_macros.h
 // file.
 
+#ifndef C10_API // Needed this to avoid ExecuTorch macro conflict
+
 #ifdef _WIN32
 #define C10_HIDDEN
 #if defined(C10_BUILD_SHARED_LIBS)
@@ -85,3 +87,5 @@
 #else
 #define C10_API C10_IMPORT
 #endif
+
+#endif // C10_API
