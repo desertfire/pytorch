@@ -361,11 +361,6 @@ C10_API std::string GetExceptionString(const std::exception& e);
 #define C10_BUILD_ERROR(err_type, msg) \
   ::c10::err_type({__func__, __FILE__, static_cast<uint32_t>(__LINE__)}, msg)
 
-// Private helper macro for workaround MSVC misexpansion of nested macro
-// invocations involving __VA_ARGS__.  See
-// https://stackoverflow.com/questions/5134523/msvc-doesnt-expand-va-args-correctly
-#define C10_EXPAND_MSVC_WORKAROUND(x) x
-
 // ----------------------------------------------------------------------------
 // Error reporting macros
 // ----------------------------------------------------------------------------
@@ -399,6 +394,7 @@ C10_API std::string GetExceptionString(const std::exception& e);
 // simply raises an exception, it does NOT unceremoniously quit the process
 // (unlike assert()).
 //
+#ifndef TORCH_STANDALONE
 #ifdef STRIP_ERROR_MESSAGES
 #define TORCH_INTERNAL_ASSERT(cond, ...)                              \
   if (C10_UNLIKELY_OR_CONST(!(cond))) {                               \
@@ -425,7 +421,8 @@ C10_API std::string GetExceptionString(const std::exception& e);
             __LINE__) ", please report a bug to PyTorch. ",                      \
         c10::str(__VA_ARGS__));                                                  \
   }
-#endif
+#endif // STRIP_ERROR_MESSAGES
+#endif // TORCH_STANDALONE
 
 // A utility macro to make it easier to test for error conditions from user
 // input.  Like TORCH_INTERNAL_ASSERT, it supports an arbitrary number of extra
@@ -562,6 +559,7 @@ inline C10_API const char* torchCheckMsgImpl(
 // build, and does nothing in release build.  It is appropriate to use
 // in situations where you want to add an assert to a hotpath, but it is
 // too expensive to run this assert on production builds.
+#ifndef TORCH_STANDALONE
 #ifdef NDEBUG
 // Optimized version - generates no code.
 #define TORCH_INTERNAL_ASSERT_DEBUG_ONLY(...) \
@@ -570,7 +568,8 @@ inline C10_API const char* torchCheckMsgImpl(
 #else
 #define TORCH_INTERNAL_ASSERT_DEBUG_ONLY(...) \
   C10_EXPAND_MSVC_WORKAROUND(TORCH_INTERNAL_ASSERT(__VA_ARGS__))
-#endif
+#endif // NDEBUG
+#endif // TORCH_STANDALONE
 
 // TODO: We're going to get a lot of similar looking string literals
 // this way; check if this actually affects binary size.
@@ -599,6 +598,7 @@ inline C10_API const char* torchCheckMsgImpl(
   TORCH_CHECK_WITH_MSG(                                   \
       ErrorAlwaysShowCppStacktrace, cond, "TYPE", ##__VA_ARGS__)
 
+#ifndef TORCH_STANDALONE
 #ifdef STRIP_ERROR_MESSAGES
 #define WARNING_MESSAGE_STRING(...) \
   ::c10::detail::CompileTimeEmptyString {}
@@ -644,7 +644,8 @@ inline C10_API const char* torchCheckMsgImpl(
   } else {                                     \
     _TORCH_WARN_ONCE(__VA_ARGS__);             \
   }
-#endif
+#endif // DISABLE_WARN
+#endif // TORCH_STANDALONE
 
 // Report an error with a specific argument
 // NOTE: using the argument name in TORCH_CHECK's message is preferred

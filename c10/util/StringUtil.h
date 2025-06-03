@@ -3,6 +3,7 @@
 
 #include <c10/macros/Macros.h>
 #include <c10/util/string_utils.h>
+#include <torch/standalone/util/StringUtil.h>
 
 #include <cstddef>
 #include <optional>
@@ -138,16 +139,6 @@ template <typename... Args>
 inline decltype(auto) str(const Args&... args) {
   return detail::_str_wrapper<
       typename detail::CanonicalizeStrTypes<Args>::type...>::call(args...);
-}
-
-template <class Container>
-inline std::string Join(const std::string& delimiter, const Container& v) {
-  std::stringstream s;
-  int cnt = static_cast<int64_t>(v.size()) - 1;
-  for (auto i = v.begin(); i != v.end(); ++i, --cnt) {
-    s << (*i) << (cnt ? delimiter : "");
-  }
-  return std::move(s).str();
 }
 
 // Replace all occurrences of "from" substring to "to" string.

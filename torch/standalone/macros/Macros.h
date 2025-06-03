@@ -43,3 +43,23 @@
 
 #define C10_STRINGIZE_IMPL(x) #x
 #define C10_STRINGIZE(x) C10_STRINGIZE_IMPL(x)
+
+#define C10_CONCATENATE_IMPL(s1, s2) s1##s2
+#define C10_CONCATENATE(s1, s2) C10_CONCATENATE_IMPL(s1, s2)
+
+/**
+ * C10_ANONYMOUS_VARIABLE(str) introduces a new identifier which starts with
+ * str and ends with a unique number.
+ */
+#ifdef __COUNTER__
+#define C10_UID __COUNTER__
+#define C10_ANONYMOUS_VARIABLE(str) C10_CONCATENATE(str, __COUNTER__)
+#else
+#define C10_UID __LINE__
+#define C10_ANONYMOUS_VARIABLE(str) C10_CONCATENATE(str, __LINE__)
+#endif
+
+// Private helper macro for workaround MSVC misexpansion of nested macro
+// invocations involving __VA_ARGS__.  See
+// https://stackoverflow.com/questions/5134523/msvc-doesnt-expand-va-args-correctly
+#define C10_EXPAND_MSVC_WORKAROUND(x) x
