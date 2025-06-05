@@ -179,6 +179,8 @@ def convert_cubin_to_obj(
     ld: str,
     objcopy: str,
 ) -> str:
+    if not os.path.exists(cubin_file):
+        return ""
     obj_file = cubin_file + ".o"
     # Convert .cubin to .o
     cmd = f"{ld} -r -b binary -z noexecstack -o {obj_file} {cubin_file}"
