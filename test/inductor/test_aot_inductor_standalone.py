@@ -101,6 +101,7 @@ copy_tests(
 
 test_list_gpu = {
     "test_cos",
+    "test__weight_int4pack_mm_m_32_n_64_q_group_32_num_groups_2",
 }
 
 

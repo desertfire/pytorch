@@ -1174,19 +1174,27 @@ class CppWrapperCpu(PythonWrapperCodegen):
             """
         )
 
-    @staticmethod
-    def get_c_shim_func_name(kernel: str, device: str) -> str:
-        if kernel.startswith("aoti_torch_"):
-            return kernel
-
+    def get_kernel_suffix(self, kernel: str) -> str:
         assert "::" in kernel, "Cpp kernel name: " + kernel + " does not contain '::'"
         kernel_tokens = kernel.split("::")
         kernel_suffix = kernel_tokens[-1]
         if kernel_suffix == "call":
             kernel_suffix = kernel_tokens[-2]
+        return kernel_suffix
 
-        shim_fn = f"aoti_torch_{device}_{kernel_suffix}"
+    def get_c_shim_func_name(self, kernel: str, device: str) -> str:
+        if kernel.startswith("aoti_torch_"):
+            return kernel
+        shim_fn = f"aoti_torch_{device}_{self.get_kernel_suffix(kernel)}"
         return shim_fn
+
+    @functools.lru_cache(None)
+    def generate_include_fallback_header(self, kernel: str, device: str) -> str:
+        assert not kernel.startswith("aoti_torch_")
+        kernel_name = self.get_kernel_suffix(kernel)
+        self.header.splice(
+            f"#include<torch/csrc/inductor/aoti_standalone/{device}/{kernel_name}.h>\n"
+        )
 
     def generate_c_shim_extern_kernel_call(
         self,
@@ -1210,6 +1218,8 @@ class CppWrapperCpu(PythonWrapperCodegen):
             "win32",
         ]
         with debug_printer_manager:
+            if config.aot_inductor.codegen_standalone:
+                self.generate_include_fallback_header(kernel, device)
             shim_fn = self.get_c_shim_func_name(kernel, device)
             shim_fn_codes = (
                 f"AOTI_TORCH_ERROR_CODE_CHECK({shim_fn}({', '.join(args)}));"
