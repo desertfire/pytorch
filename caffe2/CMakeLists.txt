@@ -1313,7 +1313,7 @@ install(DIRECTORY
   "${TORCH_SRC_DIR}/csrc"
   "${TORCH_SRC_DIR}/standalone"
   DESTINATION ${TORCH_INSTALL_INCLUDE_DIR}/torch
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.cuh")
 
 install(FILES
   "${TORCH_SRC_DIR}/script.h"
