@@ -6,15 +6,6 @@
 extern "C" {
 #endif
 
-// addmm_out
-AOTITorchError aoti_torch_cpu_addmm_out(
-    AtenTensorHandle out,
-    AtenTensorHandle self,
-    AtenTensorHandle mat1,
-    AtenTensorHandle mat2,
-    double beta,
-    double alpha);
-
 AOTITorchError aoti_torch_cpu_hann_window(
     int64_t window_length,
     int32_t* dtype,
@@ -23,6 +14,14 @@ AOTITorchError aoti_torch_cpu_hann_window(
     int32_t device_index_,
     int32_t* pin_memory,
     AtenTensorHandle* ret0);
+
+AOTITorchError aoti_torch_cpu_addmm_out(
+    AtenTensorHandle out,
+    AtenTensorHandle self,
+    AtenTensorHandle mat1,
+    AtenTensorHandle mat2,
+    double beta,
+    double alpha);
 
 #ifdef __cplusplus
 } // extern "C"

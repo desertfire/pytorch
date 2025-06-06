@@ -213,6 +213,27 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 os.path.join(os.path.dirname(__file__), "aoti_runtime", "interface.cpp")
             ) as f:
                 self.header.splice(f.read())
+
+            if config.aot_inductor.codegen_standalone:
+                csrc_root = os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "..",
+                    "csrc",
+                    "inductor",
+                    "aoti_standalone",
+                )
+
+                for file in [
+                    os.path.join(
+                        csrc_root,
+                        "cpu",
+                        "c_shim_cpu.cpp",
+                    ),
+                ]:
+                    with open(file) as f:
+                        self.header.splice(f.read())
+
             self.header.splice("\n")
 
         enable_kernel_profile = config.cpp.enable_kernel_profile and sys.platform in [
@@ -587,9 +608,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
                         dtype = may_get_constant_buffer_dtype(
                             V.graph.graph_inputs[input_key]  # type: ignore[arg-type]
                         )
-                        assert dtype is not None, (
-                            "Fails to get the dtype of the sympy.Expr"
-                        )
+                        assert (
+                            dtype is not None
+                        ), "Fails to get the dtype of the sympy.Expr"
                         self.codegen_tensor_item(
                             dtype, f"inputs[{idx}]", input_key, self.prefix
                         )
@@ -656,9 +677,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
 
         # Tell compiler we need to link with the non-mangled symbols
         for kernel in self.initialized_kernels.values():
-            assert hasattr(kernel, "get_signature"), (
-                f"{kernel} must have get_signature implemented"
-            )
+            assert hasattr(
+                kernel, "get_signature"
+            ), f"{kernel} must have get_signature implemented"
             signature = kernel.get_signature()
             self.prefix.writeline(f'extern "C" {signature};')
 
@@ -683,9 +704,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 )
             )
         for name, kernel in self.initialized_kernels.items():
-            assert hasattr(kernel, "get_signature"), (
-                f"{kernel} must have get_signature implemented"
-            )
+            assert hasattr(
+                kernel, "get_signature"
+            ), f"{kernel} must have get_signature implemented"
             kernel_ptr = f"(*{name})"
             signature = kernel.get_signature().replace(name, kernel_ptr)
             self.prefix.writeline(f"    {signature} = torch::aot_inductor::{name};")
@@ -747,9 +768,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
 
         with self.prefix.indent():
             for idx, (name, inp) in enumerate(V.graph.graph_inputs.items()):
-                assert not isinstance(inp, sympy.Expr), (
-                    f"input {name=} cannot be symbolic"
-                )
+                assert not isinstance(
+                    inp, sympy.Expr
+                ), f"input {name=} cannot be symbolic"
                 self.write_input_output_info("inputs_info_", idx, name)
 
             all_cuda = all(
@@ -820,9 +841,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
                     opaque_metadata_tensor = torch.ops.mkldnn._get_mkldnn_serialized_md(
                         tensor
                     )
-                    assert opaque_metadata_tensor.dim() == 1, (
-                        "Expect opaque_metadata_tensor to be 1-D"
-                    )
+                    assert (
+                        opaque_metadata_tensor.dim() == 1
+                    ), "Expect opaque_metadata_tensor to be 1-D"
 
                     opaque_metadata_list = opaque_metadata_tensor.tolist()
                     opaque_metadata_str = self.codegen_shape_tuple(opaque_metadata_list)
@@ -859,9 +880,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
             )
 
             for idx, output in enumerate(V.graph.graph_outputs):
-                assert not isinstance(output, sympy.Expr), (
-                    f"output {name=} cannot be symbolic"
-                )
+                assert not isinstance(
+                    output, sympy.Expr
+                ), f"output {name=} cannot be symbolic"
                 name = f"output{idx}"
                 self.write_input_output_info("outputs_info_", idx, name)
 
@@ -918,9 +939,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
             for idx, (name, _) in enumerate(V.graph.constants.items()):
                 if name in V.graph.const_output_index:
                     const_index_mapping[V.graph.const_output_index[name]] = (idx, name)  # type: ignore[call-overload]
-            assert None not in const_index_mapping, (
-                "Not all constant gets mapped for constant folding graph."
-            )
+            assert (
+                None not in const_index_mapping
+            ), "Not all constant gets mapped for constant folding graph."
 
             self.prefix.writeline(
                 f"""
@@ -1267,9 +1288,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 name = f"{output.get_name()}"
                 output_handle_name = f"{name}_handle"
                 if output.indices:
-                    assert output.indices[0][1] == idx, (
-                        f"expected {output.indices[0][1]=} == {idx=} for {output_name_base=}"
-                    )
+                    assert (
+                        output.indices[0][1] == idx
+                    ), f"expected {output.indices[0][1]=} == {idx=} for {output_name_base=}"
                 self.writeline(f"AtenTensorHandle {output_handle_name};")
                 output_args.append(f"&{output_handle_name}")
                 output_raii_handles.append(
@@ -1338,9 +1359,9 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 if reduce:
                     line += f", {V.graph.wrapper_code.val_to_arg_str(reduce)}"
             else:
-                assert reduce is None, (
-                    "Expect reduce to be None for aten.scatter_ with scalar src"
-                )
+                assert (
+                    reduce is None
+                ), "Expect reduce to be None for aten.scatter_ with scalar src"
         line += ");"
         self.writeline(line)
 
@@ -1969,24 +1990,20 @@ class CppWrapperCpu(PythonWrapperCodegen):
                     # Only treat int Scalar as dynamic
                     is_int_type = [isinstance(a, int) for a in arg]
                     if any(is_int_type):
-                        assert all(is_int_type), (
-                            "AOTInductor only supports int scalars of the same type"
-                        )
+                        assert all(
+                            is_int_type
+                        ), "AOTInductor only supports int scalars of the same type"
                         new_int_args.extend([str(a) for a in arg])
                 else:
                     assert isinstance(
                         arg_type.getElementType(),
                         static_arg_types,  # type: ignore[arg-type]
-                    ), (
-                        f"Fall through arguments must be one of static_arg_types, got {type(arg_type)}"
-                    )
+                    ), f"Fall through arguments must be one of static_arg_types, got {type(arg_type)}"
             else:
                 assert isinstance(
                     arg_type,
                     static_arg_types,  # type: ignore[arg-type]
-                ), (
-                    f"Fall through arguments must be one of static_arg_types, got {type(arg_type)}"
-                )
+                ), f"Fall through arguments must be one of static_arg_types, got {type(arg_type)}"
 
         for arg, arg_type in zip(raw_args, arg_types):
             if arg is not None:
@@ -2502,9 +2519,9 @@ if (!custom_op_wrapper) {
             return f"&{var_name}"
 
         if isinstance(type_, (torch.ListType, torch.TupleType)):
-            assert isinstance(val, (list, tuple)), (
-                f"{val} does not match with arg type {type_}"
-            )
+            assert isinstance(
+                val, (list, tuple)
+            ), f"{val} does not match with arg type {type_}"
             element_type = type_.getElementType()
 
             if len(val) == 0:
