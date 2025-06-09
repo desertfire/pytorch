@@ -614,44 +614,51 @@ def _get_optimization_cflags(
             else [wrapper_opt_level if min_optimize else "O3", "DNDEBUG"]
         )
         if "nvcc" in cpp_compiler:
-            from .codecache import _nvcc_compiler_options
+            from .codecache import _nvcc_arch
 
-            return [_nvcc_compiler_options()]
+            current_arch = _nvcc_arch()
+            cflags.append("x cu")
+            cflags.append(f"gencode arch=compute_{current_arch},code=sm_{current_arch}")
+        else:
+            cflags += _get_ffast_math_flags()
+            cflags.append("fno-finite-math-only")
+            if not config.cpp.enable_unsafe_math_opt_flag:
+                cflags.append("fno-unsafe-math-optimizations")
+            cflags.append(
+                f"ffp-contract={config.cpp.enable_floating_point_contract_flag}"
+            )
 
-        cflags += _get_ffast_math_flags()
-        cflags.append("fno-finite-math-only")
-        if not config.cpp.enable_unsafe_math_opt_flag:
-            cflags.append("fno-unsafe-math-optimizations")
-        cflags.append(f"ffp-contract={config.cpp.enable_floating_point_contract_flag}")
-
-        if sys.platform != "darwin":
-            # on macos, unknown argument: '-fno-tree-loop-vectorize'
-            if _is_gcc(cpp_compiler):
-                cflags.append("fno-tree-loop-vectorize")
-            # https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
-            # `-march=native` is unrecognized option on M1
-            if not config.is_fbcode():
-                if platform.machine() == "ppc64le":
-                    cflags.append("mcpu=native")
-                else:
-                    cflags.append("march=native")
+            if sys.platform != "darwin":
+                # on macos, unknown argument: '-fno-tree-loop-vectorize'
+                if _is_gcc(cpp_compiler):
+                    cflags.append("fno-tree-loop-vectorize")
+                # https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
+                # `-march=native` is unrecognized option on M1
+                if not config.is_fbcode():
+                    if platform.machine() == "ppc64le":
+                        cflags.append("mcpu=native")
+                    else:
+                        cflags.append("march=native")
 
         return cflags
 
 
-def _get_shared_cflag(do_link: bool) -> list[str]:
+def _get_shared_cflag(cpp_compiler: str, do_link: bool) -> list[str]:
     if _IS_WINDOWS:
         """
         MSVC `/MD` using python `ucrtbase.dll` lib as runtime.
         https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features?view=msvc-170
         """
         return ["DLL", "MD"]
+
+    fPIC = "Xcompiler '-fPIC'" if "nvcc" in cpp_compiler else "fPIC"
     if not do_link:
-        return ["fPIC"]
+        return [fPIC]
     if platform.system() == "Darwin" and "clang" in get_cpp_compiler():
         # This causes undefined symbols to behave the same as linux
-        return ["shared", "fPIC", "undefined dynamic_lookup"]
-    return ["shared", "fPIC"]
+        return ["shared", fPIC, "undefined dynamic_lookup"]
+
+    return ["shared", fPIC]
 
 
 def get_cpp_options(
@@ -670,7 +677,7 @@ def get_cpp_options(
     passthrough_args: list[str] = []
 
     cflags = (
-        _get_shared_cflag(do_link)
+        _get_shared_cflag(cpp_compiler, do_link)
         + _get_optimization_cflags(cpp_compiler, min_optimize)
         + _get_warning_all_cflag(cpp_compiler, warning_all)
         + _get_cpp_std_cflag()

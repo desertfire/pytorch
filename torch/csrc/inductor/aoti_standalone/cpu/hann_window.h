@@ -1,6 +1,12 @@
-#include <torch/csrc/inductor/aoti_standalone/cpu/c_shim_cpu.h>
+#pragma once
+
+#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
+#include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <cmath>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 using torch::standalone::ArrayRef;
 using torch::standalone::SlimTensor;
 
@@ -26,14 +32,14 @@ AOTITorchError aoti_torch_cpu_hann_window(
       *dtype == static_cast<int32_t>(c10::ScalarType::Float),
       "hann_window: float32 only")
 
-  auto* size_arr = new int64_t[1]{window_length};
-  auto* stride_arr = new int64_t[1]{1};
+  int64_t size_buf[1] = {window_length};
+  int64_t stride_buf[1] = {1};
 
-  ArrayRef sizes = {size_arr, 1, false};
-  ArrayRef strides = {stride_arr, 1, false};
+  ArrayRef sizes(size_buf, 1, false);
+  ArrayRef strides(stride_buf, 1, false);
 
-  SlimTensor* result = new SlimTensor(torch::standalone::create_empty_tensor(
-      sizes, strides, c10::ScalarType::Float, c10::DeviceType::CPU, 0, true));
+  SlimTensor* result = new SlimTensor(empty_tensor(
+      sizes, strides, c10::ScalarType::Float, c10::DeviceType::CPU, 0));
   float* data = static_cast<float*>(result->data_ptr());
 
   if (window_length == 0) {
@@ -58,3 +64,8 @@ AOTITorchError aoti_torch_cpu_hann_window(
   *ret0 = reinterpret_cast<AtenTensorHandle>(result);
   return 0;
 }
+
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

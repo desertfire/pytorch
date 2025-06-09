@@ -1925,7 +1925,14 @@ class AotCodeCompiler:
                 "vec_isa": picked_vec_isa,
             }
             # If we're packaging via CMake, we build the whole code at max optimization.
+
+            wrapper_compiler = (
+                _cuda_compiler()
+                if config.aot_inductor.codegen_standalone and device_type == "cuda"
+                else ""
+            )
             wrapper_build_options = CppTorchDeviceOptions(
+                compiler=wrapper_compiler,
                 compile_only=True,
                 min_optimize=not config.aot_inductor.package_cpp_only,
                 **compile_command,
@@ -1974,25 +1981,6 @@ class AotCodeCompiler:
             log.debug("aot wrapper compilation command: %s", wrapper_compile_cmd)
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
 
-            cuda_utils_o: list[str] = []
-            if config.aot_inductor.codegen_standalone and device_type == "cuda":
-                # TODO: seletively add additional cuda files
-                cuda_util_files: list[str] = []
-                cuda_build_options = CppTorchDeviceOptions(
-                    compiler="nvcc",
-                    compile_only=True,
-                    **compile_command,
-                )
-                for file in cuda_util_files:
-                    cuda_builder = CppBuilder(
-                        name=file,
-                        sources=file,
-                        output_dir=str(wrapper_path_operator.parent),
-                        BuildOption=cuda_build_options,
-                    )
-                    if not config.aot_inductor.package_cpp_only:
-                        cuda_builder.build()
-                        cuda_utils_o.append(cuda_builder.get_target_file_path())
 
             if config.aot_inductor.package_cpp_only:
                 # Not doing the actual compilation here
@@ -2120,7 +2108,6 @@ class AotCodeCompiler:
                 consts_o,
                 *gpu_kernels_o,
                 *cubins_o,
-                *cuda_utils_o,
             ]
             so_builder = CppBuilder(
                 name=output_name,
