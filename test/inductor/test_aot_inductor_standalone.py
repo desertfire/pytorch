@@ -101,6 +101,12 @@ copy_tests(
 
 test_list_gpu = {
     "test_cos",
+    "test_simple_embed_kernel_binary_False",
+    "test_simple_embed_kernel_binary_True",
+    "test_simple_multi_arch_embed_kernel_binary_False_emit_current_arch_binary_False",
+    "test_simple_multi_arch_embed_kernel_binary_False_emit_current_arch_binary_True",
+    "test_simple_multi_arch_embed_kernel_binary_True_emit_current_arch_binary_False",
+    "test_simple_multi_arch_embed_kernel_binary_True_emit_current_arch_binary_True",
     "test__weight_int4pack_mm_m_32_n_64_q_group_32_num_groups_2",
 }
 
