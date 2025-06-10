@@ -19,10 +19,6 @@ AOTITorchError aoti_torch_cpu_hann_window(
     int32_t device_index_,
     int32_t* pin_memory,
     AtenTensorHandle* ret0) {
-  AOTI_TORCH_CHECK(*device_type == 1, "hann_window: CPU only");
-  AOTI_TORCH_CHECK(
-      *dtype == static_cast<int32_t>(ScalarType::Float),
-      "hann_window: only float32 input supported");
 
   SlimTensor tensor = hann_window_template<SlimTensor, ArrayRef>(
       window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
