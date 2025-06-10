@@ -1927,7 +1927,7 @@ class AotCodeCompiler:
             # If we're packaging via CMake, we build the whole code at max optimization.
 
             wrapper_compiler = (
-                _cuda_compiler() or ""
+                _cuda_compiler()
                 if config.aot_inductor.codegen_standalone and device_type == "cuda"
                 else ""
             )

@@ -1,4 +1,4 @@
-#pragma onceAdd commentMore actions
+#pragma once
 
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 #include <torch/standalone/util/Factory.h>
