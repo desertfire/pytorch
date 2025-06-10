@@ -43,7 +43,6 @@ from typing import (
     TypeVar,
     Union,
 )
-from typing_extensions import override, Self
 
 import torch
 import torch.distributed as dist
@@ -98,6 +97,7 @@ from torch.compiler._cache import (
 from torch.export.pt2_archive.constants import CUSTOM_OBJ_FILENAME_PREFIX
 from torch.fx.experimental.symbolic_shapes import has_hint, hint_int, ShapeEnv
 from torch.utils._ordered_set import OrderedSet
+from typing_extensions import override, Self
 
 from .output_code import CompiledFxGraph
 from .remote_cache import create_cache
@@ -108,14 +108,13 @@ from .virtualized import V
 
 
 if config.is_fbcode():
-    from triton.fb.build import build_paths
-
     from torch._inductor.fb.utils import (
         log_global_cache_errors,
         log_global_cache_stats,
         log_global_cache_vals,
         use_global_cache,
     )
+    from triton.fb.build import build_paths
 else:
 
     def log_global_cache_errors(*args: Any, **kwargs: Any) -> None:
@@ -448,9 +447,9 @@ def write_atomic(
 ) -> None:
     # Write into temporary file first to avoid conflicts between threads
     # Avoid using a named temporary file, as those have restricted permissions
-    assert isinstance(content, (str, bytes)), (
-        "Only strings and byte arrays can be saved in the cache"
-    )
+    assert isinstance(
+        content, (str, bytes)
+    ), "Only strings and byte arrays can be saved in the cache"
     path = Path(path_)
     if make_dirs:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1292,9 +1291,9 @@ class FxGraphCache(GuardedCache[CompiledFxGraph]):
         """
         from .compile_fx import CompiledFxGraph
 
-        assert isinstance(compiled_graph, CompiledFxGraph), (
-            f"serialization for {type(compiled_graph)} NYI"
-        )
+        assert isinstance(
+            compiled_graph, CompiledFxGraph
+        ), f"serialization for {type(compiled_graph)} NYI"
 
         # Before serializing, compute the guard expression that will be used to
         # ensure that a CompiledFxGraph is valid when loaded from the cache. It's
@@ -1496,8 +1495,9 @@ class FxGraphCache(GuardedCache[CompiledFxGraph]):
                     time_saved_ns // 1000,
                 )
                 if (
-                    ephemeral_increase
-                    := add_ephemeral_timeout_increase_for_distributed(time_saved_ns)
+                    ephemeral_increase := add_ephemeral_timeout_increase_for_distributed(
+                        time_saved_ns
+                    )
                 ) != 0:
                     cache_info["ephemeral_timeout_increase"] = ephemeral_increase
         else:
@@ -1557,9 +1557,9 @@ class CudaKernelParamCache:
     ) -> None:
         basename = None
         if config.aot_inductor.package_cpp_only:
-            assert config.triton.unique_kernel_names, (
-                "package_cpp_only requires triton kernel names to be unique"
-            )
+            assert (
+                config.triton.unique_kernel_names
+            ), "package_cpp_only requires triton kernel names to be unique"
             assert params["mangled_name"], "Missing kernel name"
             basename = params["mangled_name"]
 
@@ -1841,9 +1841,9 @@ class AotCodeCompiler:
                 )
             )
             for k, v in config.aot_inductor.metadata.items():
-                assert isinstance(k, str) and isinstance(v, (str)), (
-                    "Metadata must only contain strings"
-                )
+                assert isinstance(k, str) and isinstance(
+                    v, (str)
+                ), "Metadata must only contain strings"
 
             with open(meta_json, "w") as f:
                 f.write(json.dumps(config.aot_inductor.metadata))
@@ -1981,7 +1981,6 @@ class AotCodeCompiler:
             log.debug("aot wrapper compilation command: %s", wrapper_compile_cmd)
             log.debug("aot kernel compilation command: %s", kernel_compile_cmd)
 
-
             if config.aot_inductor.package_cpp_only:
                 # Not doing the actual compilation here
                 compile_flags = str(
@@ -2021,7 +2020,9 @@ class AotCodeCompiler:
             # nodes json. The key in model_constants_config.json produced by package_sigmoid is the attribute name in the
             # user model code.
 
-            qual_name_to_id = {}  # Map from constant name to its name in constants folder
+            qual_name_to_id = (
+                {}
+            )  # Map from constant name to its name in constants folder
             for custom_obj_idx, (name, constant) in enumerate(
                 graph.torchbind_constants.items()
             ):
@@ -2060,9 +2061,9 @@ class AotCodeCompiler:
                 if entry.output_path.endswith(".o")
             ]
             if gpu_kernels_o:
-                assert not config.aot_inductor.emit_multi_arch_kernel, (
-                    "TODO: add emit_multi_arch_kernel support for cutlass kernels"
-                )
+                assert (
+                    not config.aot_inductor.emit_multi_arch_kernel
+                ), "TODO: add emit_multi_arch_kernel support for cutlass kernels"
 
             cubins_o = []
             asm_files = []
@@ -2266,9 +2267,9 @@ def _precompile_header(
     hashable_cmd_line: str,
     **compile_command: Any,
 ) -> str:
-    assert not _IS_WINDOWS, (
-        "CppBuilder does not currently support precompiling on Windows!"
-    )
+    assert (
+        not _IS_WINDOWS
+    ), "CppBuilder does not currently support precompiling on Windows!"
 
     # Get the preprocessed output from the header file to be precompiled.  This allows
     # us to properly invalidate the file cache when any header dependency changes.  This

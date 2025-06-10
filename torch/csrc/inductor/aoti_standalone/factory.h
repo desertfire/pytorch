@@ -4,6 +4,7 @@
 #include <torch/standalone/util/Factory.h>
 
 namespace torch::standalone {
+
 torch::standalone::SlimTensor empty_tensor(
     torch::standalone::ArrayRef sizes,
     torch::standalone::ArrayRef strides,
