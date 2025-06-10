@@ -1,4 +1,4 @@
-#pragma once
+#pragma onceAdd commentMore actions
 
 #include <sstream>
 #include <string>

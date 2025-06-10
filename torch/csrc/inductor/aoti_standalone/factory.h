@@ -1,15 +1,16 @@
-#pragma once
+#pragma onceAdd commentMore actions
 
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 #include <torch/standalone/util/Factory.h>
 
 namespace torch::standalone {
 
-torch::standalone::SlimTensor empty_tensor(
-    torch::standalone::ArrayRef sizes,
-    torch::standalone::ArrayRef strides,
-    torch::standalone::ScalarType dtype,
-    torch::standalone::Device device,
+template <>
+inline SlimTensor empty_tensor<SlimTensor, ArrayRef>(
+    ArrayRef sizes, // NOLINT(performance-unnecessary-value-param)
+    ArrayRef strides, // NOLINT(performance-unnecessary-value-param)
+    ScalarType dtype,
+    Device device,
     int64_t storage_offset) {
   return create_empty_tensor(
       sizes,

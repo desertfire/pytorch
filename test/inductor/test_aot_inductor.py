@@ -212,14 +212,11 @@ class AOTInductorTestsTemplate:
             def __init__(self) -> None:
                 super().__init__()
 
-            def forward(self, spec):
+            def forward(self):
                 window = torch.hann_window(1024).type(torch.FloatTensor)
                 return window
 
-        real_part = torch.rand(1, 513, 282, dtype=torch.float32)
-        imaginary_part = torch.randn(1, 513, 282, dtype=torch.float32)
-        spec = torch.complex(real_part, imaginary_part)
-        self.check_model(Model(), (spec,))
+        self.check_model(Model(), ())
 
     def test_small_constant(self):
         class Model(torch.nn.Module):

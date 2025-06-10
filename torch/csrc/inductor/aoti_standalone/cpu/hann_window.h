@@ -1,7 +1,6 @@
 #pragma once
 
 #include <torch/csrc/inductor/aoti_standalone/c/shim.h>
-#include <torch/csrc/inductor/aoti_standalone/cpu/c_shim_cpu.h>
 #include <torch/standalone/cpu/hann_window_template.h>
 #include <torch/standalone/slim_tensor/array_ref.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
