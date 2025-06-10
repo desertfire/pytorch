@@ -6,9 +6,9 @@
 namespace torch::standalone {
 
 template <>
-inline SlimTensor empty_tensor<SlimTensor, ArrayRef>(
-    ArrayRef sizes, // NOLINT(performance-unnecessary-value-param)
-    ArrayRef strides, // NOLINT(performance-unnecessary-value-param)
+SlimTensor empty_tensor<SlimTensor, ArrayRef>(
+    ArrayRef sizes,
+    ArrayRef strides,
     ScalarType dtype,
     Device device,
     int64_t storage_offset) {
