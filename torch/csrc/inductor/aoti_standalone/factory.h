@@ -11,6 +11,7 @@ SlimTensor empty_tensor(
     ArrayRef strides,
     ScalarType dtype,
     Device device,
+
     int64_t storage_offset) {
   return create_empty_tensor(
       sizes,

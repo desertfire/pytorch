@@ -1733,10 +1733,15 @@ def compile_fx_aot(
         else {**config_patches, "cpp_wrapper": True}
     )
 
+    if config.aot_inductor.codegen_standalone:
+        # Enable max_autotune+triton as default to avoid writing torch::standalone
+        # aten fallback ops for the family of matmul kernels
+        config_patches["max_autotune"] = 1
+        config_patches["max_autotune_gemm_backends"] = "TRITON"
+
     output_path = config_patches.get(
         "aot_inductor.output_path", config.aot_inductor.output_path
     )
-
     if output_path:
         assert not output_path.endswith(".pt2"), (
             "The output path for aot_compile should not have an extension with .pt2 "
