@@ -13,7 +13,7 @@ inline void permute_size_stride_estimation(
     int64_t* new_sizes,
     int64_t* new_strides) {
   const int64_t ndim = self.dim();
-  AOTI_TORCH_CHECK(
+  TORCH_CHECK(
       ndim == dims_len, "permute: dims length must be equal to tensor.dim()")
 
   const auto old_sizes = self.sizes();
