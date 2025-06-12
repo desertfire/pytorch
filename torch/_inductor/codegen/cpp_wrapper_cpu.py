@@ -213,6 +213,7 @@ class CppWrapperCpu(PythonWrapperCodegen):
                 os.path.join(os.path.dirname(__file__), "aoti_runtime", "interface.cpp")
             ) as f:
                 self.header.splice(f.read())
+
             self.header.splice("\n")
 
         enable_kernel_profile = config.cpp.enable_kernel_profile and sys.platform in [

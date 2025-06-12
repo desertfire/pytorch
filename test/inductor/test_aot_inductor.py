@@ -213,6 +213,17 @@ class AOTInductorTestsTemplate:
         example_inputs = (torch.randn(16, 10, device=self.device),)
         self.check_model(Model(), example_inputs)
 
+    def test_hann_window(self):
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self):
+                window = torch.hann_window(1024).type(torch.FloatTensor)
+                return window
+
+        self.check_model(Model(), ())
+
     def test_small_constant(self):
         class Model(torch.nn.Module):
             def __init__(self) -> None:

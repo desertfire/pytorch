@@ -4,12 +4,14 @@
 #include <torch/standalone/util/Factory.h>
 
 namespace torch::standalone {
+
 template <>
-torch::standalone::SlimTensor empty_tensor(
-    torch::standalone::ArrayRef sizes,
-    torch::standalone::ArrayRef strides,
-    torch::standalone::ScalarType dtype,
-    torch::standalone::Device device,
+SlimTensor empty_tensor(
+    ArrayRef sizes,
+    ArrayRef strides,
+    ScalarType dtype,
+    Device device,
+
     int64_t storage_offset) {
   return create_empty_tensor(
       sizes,
