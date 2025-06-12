@@ -19,7 +19,6 @@ AOTITorchError aoti_torch_cpu_hann_window(
     int32_t device_index_,
     int32_t* pin_memory,
     AtenTensorHandle* ret0) {
-
   SlimTensor tensor = hann_window_template<SlimTensor, ArrayRef>(
       window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
 
