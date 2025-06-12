@@ -14,6 +14,16 @@
 
 namespace torch::standalone {
 
+inline int64_t maybe_wrap_dim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  if (dim < 0 || dim >= ndim) {
+    throw std::runtime_error("dimension out of range");
+  }
+  return dim;
+}
+
 inline void throw_cuda_error(cudaError_t err) {
   if (err != cudaSuccess) {
     throw std::runtime_error(std::string(cudaGetErrorString(err)));
