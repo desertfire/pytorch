@@ -20,8 +20,7 @@ from torch._dynamo.testing import rand_strided, same
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.runtime.runtime_utils import cache_dir
-
-# from torch._inductor.test_case import TestCase
+from torch._inductor.test_case import TestCase
 from torch._inductor.utils import is_big_gpu, run_and_get_cpp_code
 from torch._utils_internal import full_aoti_runtime_assert
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
@@ -49,7 +48,6 @@ from torch.testing._internal.common_utils import (
     skipIfRocm,
     skipIfXpu,
     TEST_WITH_ROCM,
-    TestCase,
 )
 from torch.testing._internal.custom_tensor import CustomTensorPlainOut
 from torch.testing._internal.inductor_utils import GPU_TYPE, IS_BIG_GPU
