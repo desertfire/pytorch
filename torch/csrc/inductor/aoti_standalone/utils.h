@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 
 using AOTITorchError = int32_t;
 #define AOTI_TORCH_SUCCESS 0
