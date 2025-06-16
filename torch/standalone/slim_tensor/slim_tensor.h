@@ -21,13 +21,13 @@ class SlimTensor {
  public:
   SlimTensor(
       Storage&& storage,
-      ArrayRef sizes,
-      ArrayRef strides,
+      const ArrayRef& sizes,
+      const ArrayRef& strides,
       c10::ScalarType dtype,
       int64_t storage_offset = 0)
       : storage_(std::move(storage)),
-        sizes_(std::move(sizes)),
-        strides_(std::move(strides)),
+        sizes_(sizes),
+        strides_(strides),
         dtype_(dtype),
         storage_offset_(storage_offset),
         numel_(compute_numel(sizes_)) {}
