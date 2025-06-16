@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
 
@@ -129,6 +130,35 @@ class SlimTensor {
 
   SlimTensor to(c10::ScalarType dtype) const {
     throw std::runtime_error("TBD: to(dtype)");
+  }
+
+  SlimTensor permute(const int64_t* dims, int64_t dims_len) const {
+    const int64_t ndim = static_cast<int64_t>(this->dim());
+
+    TORCH_CHECK(
+        ndim == dims_len, "permute: dims length must be equal to tensor.dim()")
+
+    const auto old_sizes = this->sizes();
+    const auto old_strides = this->strides();
+
+    int64_t* new_sizes = new int64_t[dims_len];
+    int64_t* new_strides = new int64_t[dims_len];
+    std::vector<bool> seen_dims(dims_len, false);
+
+    for (int64_t i = 0; i < dims_len; i++) {
+      int64_t d = maybe_wrap_dim(dims[i], ndim);
+      TORCH_CHECK(!seen_dims[d], "permute: duplicate dims are not allowed");
+      seen_dims[d] = true;
+      new_sizes[i] = old_sizes[d];
+      new_strides[i] = old_strides[d];
+    }
+
+    ArrayRef sizes_ref{new_sizes, static_cast<size_t>(dims_len)};
+    ArrayRef strides_ref{new_strides, static_cast<size_t>(dims_len)};
+
+    SlimTensor result = *this;
+    result.as_strided_(sizes_ref, strides_ref, this->storage_offset());
+    return result;
   }
 
  private:
