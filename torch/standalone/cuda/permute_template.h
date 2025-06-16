@@ -1,5 +1,4 @@
 #pragma once
-#include <torch/csrc/inductor/aoti_standalone/cuda/utils.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <vector>
 
