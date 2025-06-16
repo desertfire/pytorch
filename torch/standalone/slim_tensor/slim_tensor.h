@@ -1,5 +1,8 @@
 #pragma once
 
+#include <c10/core/MemoryFormat.h>
+#include <torch/standalone/slim_tensor/storage.h>
+#include <torch/standalone/slim_tensor/utils.h>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -18,13 +21,13 @@ class SlimTensor {
  public:
   SlimTensor(
       Storage&& storage,
-      const ArrayRef& sizes,
-      const ArrayRef& strides,
+      ArrayRef sizes,
+      ArrayRef strides,
       c10::ScalarType dtype,
       int64_t storage_offset = 0)
       : storage_(std::move(storage)),
-        sizes_(sizes),
-        strides_(strides),
+        sizes_(std::move(sizes)),
+        strides_(std::move(strides)),
         dtype_(dtype),
         storage_offset_(storage_offset),
         numel_(compute_numel(sizes_)) {}
