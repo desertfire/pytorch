@@ -228,8 +228,18 @@ class SlimTensor {
     throw std::runtime_error("TBD: to(dtype)");
   }
 
+<<<<<<< HEAD
   SlimTensor permute(ArrayRef dims) const {
     const int64_t ndim = static_cast<int64_t>(this->dim());
+=======
+<<<<<<< HEAD
+  SlimTensor permute(const ArrayRef& dims) const {
+    const int64_t ndim = this->dim();
+=======
+  SlimTensor permute(ArrayRef dims) const {
+    const int64_t ndim = static_cast<int64_t>(this->dim());
+>>>>>>> 22c1a63f845 (add member functions for slim tensor)
+>>>>>>> 5f382455362 (add member functions for slim tensor)
 
     TORCH_CHECK(
         ndim == static_cast<int64_t>(dims.size()),
@@ -255,6 +265,10 @@ class SlimTensor {
         ArrayRef(new_sizes.data(), ndim, /*owning=*/true),
         ArrayRef(new_strides.data(), ndim, /*owning=*/true),
         this->storage_offset());
+<<<<<<< HEAD
+=======
+
+>>>>>>> 22c1a63f845 (add member functions for slim tensor)
     return result;
   }
 
