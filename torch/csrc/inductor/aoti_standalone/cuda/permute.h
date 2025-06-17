@@ -15,7 +15,8 @@ AOTITorchError aoti_torch_cuda_permute(
     int64_t dims_len,
     AtenTensorHandle* ret0) {
   SlimTensor& self = *reinterpret_cast<SlimTensor*>(self_h);
-  SlimTensor result = self.permute(dims, dims_len);
+  ArrayRef dims_ref(dims, static_cast<size_t>(dims_len));
+  SlimTensor result = self.permute(dims_ref);
   *ret0 = reinterpret_cast<AtenTensorHandle>(new SlimTensor(std::move(result)));
   return AOTI_TORCH_SUCCESS;
 }

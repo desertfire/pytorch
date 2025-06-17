@@ -132,20 +132,21 @@ class SlimTensor {
     throw std::runtime_error("TBD: to(dtype)");
   }
 
-  SlimTensor permute(const int64_t* dims, int64_t dims_len) const {
-    const int64_t ndim = static_cast<int64_t>(this->dim());
+  SlimTensor permute(ArrayRef dims) const {
+    const int64_t ndim = this->dim();
 
     TORCH_CHECK(
-        ndim == dims_len, "permute: dims length must be equal to tensor.dim()")
+        ndim == static_cast<int64_t>(dims.size()),
+        "permute: dims length must be equal to tensor.dim()")
 
     const auto old_sizes = this->sizes();
     const auto old_strides = this->strides();
 
-    int64_t* new_sizes = new int64_t[dims_len];
-    int64_t* new_strides = new int64_t[dims_len];
-    std::vector<bool> seen_dims(dims_len, false);
+    std::vector<int64_t> new_sizes(ndim);
+    std::vector<int64_t> new_strides(ndim);
+    std::vector<bool> seen_dims(ndim, false);
 
-    for (int64_t i = 0; i < dims_len; i++) {
+    for (int64_t i = 0; i < ndim; i++) {
       int64_t d = maybe_wrap_dim(dims[i], ndim);
       TORCH_CHECK(!seen_dims[d], "permute: duplicate dims are not allowed");
       seen_dims[d] = true;
@@ -153,11 +154,12 @@ class SlimTensor {
       new_strides[i] = old_strides[d];
     }
 
-    ArrayRef sizes_ref{new_sizes, static_cast<size_t>(dims_len)};
-    ArrayRef strides_ref{new_strides, static_cast<size_t>(dims_len)};
-
     SlimTensor result = *this;
-    result.as_strided_(sizes_ref, strides_ref, this->storage_offset());
+    result.as_strided_(
+      ArrayRef(new_sizes.data(), ndim, /*owning=*/true),
+      ArrayRef(new_strides.data(), ndim, /*owning=*/true),
+      this->storage_offset());
+
     return result;
   }
 
