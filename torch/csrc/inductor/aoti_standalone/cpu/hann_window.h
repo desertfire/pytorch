@@ -11,7 +11,7 @@ extern "C" {
 #endif
 namespace torch::standalone {
 
-AOTITorchError aoti_torch_cpu_hann_window(
+inline AOTITorchError aoti_torch_cpu_hann_window(
     int64_t window_length,
     int32_t* dtype,
     int32_t* layout,

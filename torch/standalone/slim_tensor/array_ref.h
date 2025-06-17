@@ -24,7 +24,7 @@ class MaybeOwningArrayRef final {
   size_t length_;
 
   using BaseT = std::remove_const_t<T>;
-  SharedPtr<BaseT> owning_data_;
+  SharedPtr<BaseT> owning_data_{nullptr};
 
  public:
   /// @name Constructors
@@ -47,10 +47,40 @@ class MaybeOwningArrayRef final {
     }
   }
 
-  MaybeOwningArrayRef(MaybeOwningArrayRef&& other) = default;
-  MaybeOwningArrayRef(const MaybeOwningArrayRef& other) = default;
-  MaybeOwningArrayRef& operator=(const MaybeOwningArrayRef& other) = default;
-  MaybeOwningArrayRef& operator=(MaybeOwningArrayRef&& other) = default;
+  MaybeOwningArrayRef(MaybeOwningArrayRef&& other)
+      : data_(other.data_),
+        length_(other.length_),
+        owning_data_(other.owning_data_) {
+    if (owning_data_) {
+      data_ = owning_data_.get();
+    }
+  }
+  MaybeOwningArrayRef(const MaybeOwningArrayRef& other)
+      : data_(other.data_),
+        length_(other.length_),
+        owning_data_(other.owning_data_) {
+    if (owning_data_) {
+      data_ = owning_data_.get();
+    }
+  }
+  MaybeOwningArrayRef& operator=(const MaybeOwningArrayRef& other) {
+    data_ = other.data_;
+    length_ = other.length_;
+    owning_data_ = other.owning_data_;
+    if (owning_data_) {
+      data_ = owning_data_.get();
+    }
+    return *this;
+  }
+  MaybeOwningArrayRef& operator=(MaybeOwningArrayRef&& other) {
+    data_ = other.data_;
+    length_ = other.length_;
+    owning_data_ = other.owning_data_;
+    if (owning_data_) {
+      data_ = owning_data_.get();
+    }
+    return *this;
+  }
 
   ~MaybeOwningArrayRef() {
     if (owning_data_) {

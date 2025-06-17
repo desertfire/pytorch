@@ -9,7 +9,7 @@ extern "C" {
 #endif
 namespace torch::standalone {
 
-AOTITorchError aoti_torch_cuda_permute(
+inline AOTITorchError aoti_torch_cuda_permute(
     AtenTensorHandle self_h,
     const int64_t* dims,
     int64_t dims_len,

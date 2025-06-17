@@ -103,11 +103,11 @@ class SlimTensor {
   }
 
   SlimTensor as_strided_(
-      ArrayRef sizes,
-      ArrayRef strides,
+      const ArrayRef& sizes,
+      const ArrayRef& strides,
       int64_t storage_offset) {
-    sizes_ = std::move(sizes);
-    strides_ = std::move(strides);
+    sizes_ = sizes;
+    strides_ = strides;
     storage_offset_ = storage_offset;
     return *this;
   }
@@ -132,7 +132,7 @@ class SlimTensor {
     throw std::runtime_error("TBD: to(dtype)");
   }
 
-  SlimTensor permute(ArrayRef dims) const {
+  SlimTensor permute(const ArrayRef& dims) const {
     const int64_t ndim = this->dim();
 
     TORCH_CHECK(
@@ -156,10 +156,9 @@ class SlimTensor {
 
     SlimTensor result = *this;
     result.as_strided_(
-      ArrayRef(new_sizes.data(), ndim, /*owning=*/true),
-      ArrayRef(new_strides.data(), ndim, /*owning=*/true),
-      this->storage_offset());
-
+        ArrayRef(new_sizes.data(), ndim, /*owning=*/true),
+        ArrayRef(new_strides.data(), ndim, /*owning=*/true),
+        this->storage_offset());
     return result;
   }
 
