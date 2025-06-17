@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 
 using AOTITorchError = int32_t;
 #define AOTI_TORCH_SUCCESS 0
@@ -25,3 +26,13 @@ using AOTITorchError = int32_t;
     return AOTI_TORCH_FAILURE;                            \
   }                                                       \
   return AOTI_TORCH_SUCCESS;
+
+inline int64_t maybe_wrap_dim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  if (dim < 0 || dim >= ndim) {
+    throw std::runtime_error("dimension out of range");
+  }
+  return dim;
+}
