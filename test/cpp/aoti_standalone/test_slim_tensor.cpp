@@ -1,7 +1,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h> // For c10::MemoryFormat
+#include <c10/core/MemoryFormat.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 #include <torch/standalone/slim_tensor/array_ref.h>
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
