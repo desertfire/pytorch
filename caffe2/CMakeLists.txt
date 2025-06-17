@@ -1341,6 +1341,7 @@ if(BUILD_TEST)
   else()
     add_subdirectory(${TORCH_ROOT}/test/cpp/jit ${CMAKE_BINARY_DIR}/test_jit)
     add_subdirectory(${TORCH_ROOT}/test/cpp/nativert ${CMAKE_BINARY_DIR}/test_nativert)
+    add_subdirectory(${TORCH_ROOT}/test/cpp/aoti_standalone ${CMAKE_BINARY_DIR}/test_aoti_standalone)
     add_subdirectory(${TORCH_ROOT}/test/inductor ${CMAKE_BINARY_DIR}/test_inductor)
     add_subdirectory(
       ${TORCH_ROOT}/test/cpp/tensorexpr

@@ -12,6 +12,7 @@ namespace torch::standalone {
 template <typename T>
 class MaybeOwningArrayRef final {
  public:
+  using value_type = T;
   using iterator = T*;
   using const_iterator = const T*;
   using reverse_iterator = std::reverse_iterator<iterator>;

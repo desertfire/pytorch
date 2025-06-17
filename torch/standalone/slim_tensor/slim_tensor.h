@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <c10/core/MemoryFormat.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
@@ -98,8 +99,99 @@ class SlimTensor {
   }
 
   bool is_contiguous() const {
-    // bogus, always return true for now
-    return true;
+    return is_contiguous_;
+  }
+
+  void set_sizes_and_strides(
+      const ArrayRef& sizes,
+      const ArrayRef& strides,
+      std::optional<int64_t> storage_offset = std::nullopt) {
+    const int64_t new_dim = static_cast<int64_t>(sizes.size());
+    TORCH_CHECK(
+        new_dim == static_cast<int64_t>(strides.size()),
+        "dimensionality of sizes (",
+        new_dim,
+        ") must match dimensionality of strides (",
+        strides.size(),
+        ")");
+
+    auto* new_sizes = new int64_t[new_dim];
+    auto* new_strides = new int64_t[new_dim];
+    std::copy(sizes.begin(), sizes.end(), new_sizes);
+
+    // stride calculation logic
+    bool overflowed = false;
+    if (new_dim > 0) {
+      for (int64_t dim = new_dim - 1; dim >= 0; dim--) {
+        if (strides[dim] >= 0) {
+          new_strides[dim] = strides[dim];
+        } else {
+          // for negative strides
+          if (dim == new_dim - 1) {
+            new_strides[dim] = 1;
+          } else {
+            overflowed |= c10::mul_overflows(
+                new_strides[dim + 1],
+                std::max<int64_t>(new_sizes[dim + 1], 1),
+                &new_strides[dim]);
+          }
+        }
+      }
+    }
+    TORCH_CHECK(!overflowed, "Stride calculation overflowed");
+
+    sizes_ = ArrayRef(new_sizes, new_dim, /*owning=*/true);
+    strides_ = ArrayRef(new_strides, new_dim, /*owning=*/true);
+
+    if (storage_offset.has_value()) {
+      storage_offset_ = *storage_offset;
+    }
+
+    refresh_numel();
+    refresh_contiguous();
+  }
+
+  void set_sizes_contiguous(const ArrayRef& sizes) {
+    const size_t new_dim = sizes.size();
+
+    auto* new_sizes = new int64_t[new_dim];
+    std::copy(sizes.begin(), sizes.end(), new_sizes);
+
+    sizes_ = ArrayRef(new_sizes, new_dim, /*owning=*/true);
+    refresh_numel();
+
+    this->empty_tensor_restride(c10::MemoryFormat::Contiguous);
+  }
+
+  void empty_tensor_restride(c10::MemoryFormat memory_format) {
+    switch (memory_format) {
+      case c10::MemoryFormat::Contiguous: {
+        const auto current_dim = this->dim();
+        auto* new_strides_data = new int64_t[current_dim];
+
+        if (current_dim > 0) {
+          const int64_t last_idx = static_cast<int64_t>(current_dim) - 1;
+          new_strides_data[last_idx] = 1;
+          for (int64_t i = last_idx - 1; i >= 0; i--) {
+            new_strides_data[i] = new_strides_data[i + 1] * this->size(i + 1);
+          }
+        }
+
+        strides_ = ArrayRef(new_strides_data, current_dim, /*owning=*/true);
+        break;
+      }
+      // TODO: implement the other cases.
+      case c10::MemoryFormat::ChannelsLast:
+      case c10::MemoryFormat::Preserve:
+      case c10::MemoryFormat::ChannelsLast3d:
+      default:
+        TORCH_CHECK(
+            memory_format == c10::MemoryFormat::Contiguous,
+            "Only support MemoryFormat::Contiguous now");
+        break;
+    }
+
+    refresh_contiguous();
   }
 
   SlimTensor as_strided_(
@@ -132,8 +224,13 @@ class SlimTensor {
     throw std::runtime_error("TBD: to(dtype)");
   }
 
+<<<<<<< HEAD
   SlimTensor permute(const ArrayRef& dims) const {
     const int64_t ndim = this->dim();
+=======
+  SlimTensor permute(ArrayRef dims) const {
+    const int64_t ndim = static_cast<int64_t>(this->dim());
+>>>>>>> 22c1a63f845 (add member functions for slim tensor)
 
     TORCH_CHECK(
         ndim == static_cast<int64_t>(dims.size()),
@@ -147,7 +244,7 @@ class SlimTensor {
     std::vector<bool> seen_dims(ndim, false);
 
     for (int64_t i = 0; i < ndim; i++) {
-      int64_t d = maybe_wrap_dim(dims[i], ndim);
+      int64_t d = torch::standalone::maybe_wrap_dim(dims[i], ndim);
       TORCH_CHECK(!seen_dims[d], "permute: duplicate dims are not allowed");
       seen_dims[d] = true;
       new_sizes[i] = old_sizes[d];
@@ -159,6 +256,10 @@ class SlimTensor {
         ArrayRef(new_sizes.data(), ndim, /*owning=*/true),
         ArrayRef(new_strides.data(), ndim, /*owning=*/true),
         this->storage_offset());
+<<<<<<< HEAD
+=======
+
+>>>>>>> 22c1a63f845 (add member functions for slim tensor)
     return result;
   }
 
@@ -172,6 +273,35 @@ class SlimTensor {
   c10::ScalarType dtype_;
   int64_t storage_offset_;
   size_t numel_;
+  bool is_contiguous_ = true;
+
+  void refresh_numel() {
+    numel_ = torch::standalone::compute_numel(sizes_);
+  }
+
+  bool compute_is_contiguous() const {
+    if (dim() <= 1) {
+      return true;
+    }
+
+    int64_t expected_stride = 1;
+    for (int64_t i = static_cast<int64_t>(dim()) - 1; i >= 0; i--) {
+      if (size(i) == 0) {
+        return true;
+      }
+      if (size(i) != 1 && stride(i) != expected_stride) {
+        return false;
+      }
+      expected_stride *= size(i);
+    }
+    return true;
+  }
+
+  void refresh_contiguous() {
+    // In SlimTensor, we only care about the single is_contiguous_ flag.
+    // (because TensorImpl (aten) implementation has other stuff)
+    is_contiguous_ = compute_is_contiguous();
+  }
 };
 
 // The returned SlimTensor owns the underlying storage
