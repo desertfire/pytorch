@@ -9,7 +9,7 @@ extern "C" {
 
 namespace torch::standalone {
 
-AOTITorchError aoti_torch_cpu_resize_(
+AOTITorchError aoti_torch_cuda_resize_(
     AtenTensorHandle self,
     const int64_t* size,
     int64_t size_len_,
