@@ -102,6 +102,10 @@ class SlimTensor {
     return is_contiguous_;
   }
 
+  void set_storage(Storage&& new_storage) {
+    storage_ = std::move(new_storage);
+  }
+
   void set_sizes_and_strides(
       const ArrayRef& sizes,
       const ArrayRef& strides,
