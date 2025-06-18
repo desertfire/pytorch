@@ -208,4 +208,14 @@ class MaybeOwningArrayRef final {
 
 using ArrayRef = MaybeOwningArrayRef<const int64_t>;
 
+template <typename T>
+inline bool operator==(
+    const MaybeOwningArrayRef<T>& lhs,
+    const MaybeOwningArrayRef<T>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+}
+
 } // namespace torch::standalone

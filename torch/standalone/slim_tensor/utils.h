@@ -66,4 +66,34 @@ inline size_t compute_nbytes(size_t numel, c10::ScalarType dtype) {
 #endif
 }
 
+inline int64_t compute_storage_nbytes_contiguous(
+  ArrayRef sizes,
+  size_t itemsize,
+  int64_t storage_offset) {
+int64_t numel = 1;
+for (auto s : sizes) {
+  numel *= s;
+}
+return static_cast<int64_t>(itemsize) * (storage_offset + numel);
+}
+
+inline int64_t compute_storage_nbytes(
+  ArrayRef sizes,
+  ArrayRef strides,
+  size_t itemsize,
+  int64_t storage_offset) {
+if (sizes.empty()) {
+  return static_cast<int64_t>(itemsize) * storage_offset;
+}
+
+int64_t size = 1;
+for (size_t i = 0; i < sizes.size(); i++) {
+  if (sizes[i] == 0) {
+    return 0;
+  }
+  size += strides[i] * (sizes[i] - 1);
+}
+return static_cast<int64_t>(itemsize) * (storage_offset + size);
+}
+
 } // namespace torch::standalone

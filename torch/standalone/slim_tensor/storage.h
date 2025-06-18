@@ -110,7 +110,7 @@ struct DeviceTraits<c10::DeviceType::CUDA> {
 class MaybeOwningStorage {
  public:
   MaybeOwningStorage(size_t nbytes, const c10::Device& device)
-      : device_(device) {
+      : device_(device), capacity_(nbytes), is_owning_(true) {
     // Allocating memory here so owning_ has to be true.
     if (device.is_cpu()) {
       data_ = DeviceTraits<c10::DeviceType::CPU>::allocate(nbytes);
@@ -177,6 +177,10 @@ class MaybeOwningStorage {
     return device_.index();
   }
 
+  size_t nbytes() const {
+    return this->capacity_;
+  }
+
   void unsafe_set_to_non_owning() {
     // This is only used when interacting with at::Tensor. When testing
     // standalone AOTI from pytorch, we need to convert the output SlimTensor
@@ -184,14 +188,61 @@ class MaybeOwningStorage {
     // at::Tensor. When all the SlimTensors referencing the storage are
     // destroyed, the storage should NOT be freed.
     deleter_ = noop;
+    is_owning_ = false;
+  }
+
+  bool is_resizable() const {
+    return is_owning_;
+  }
+
+  void set_data_ptr(void* new_data) {
+    data_ = new_data;
+  }
+
+  void set_nbytes(size_t new_nbytes) {
+    capacity_ = new_nbytes;
   }
 
  private:
   void* data_ = nullptr;
   c10::Device device_ = CPU_DEVICE;
   std::function<void(void*)> deleter_;
+  size_t capacity_ = 0;
+  bool is_owning_ = false;
 };
 
 using Storage = SharedPtr<MaybeOwningStorage>;
+
+// resize_bytes_cpu in ATen/native/Resize.cpp
+inline void resize_bytes_cpu(
+    MaybeOwningStorage* storage,
+    size_t new_size_bytes) {
+  TORCH_CHECK(
+      storage->is_resizable(),
+      "Trying to resize storage that is not resizable");
+
+  void* new_data = nullptr;
+  const c10::Device& device = storage->device();
+
+  if (new_size_bytes > 0) {
+    new_data = DeviceTraits<c10::DeviceType::CPU>::allocate(new_size_bytes);
+  }
+
+  void* old_data = storage->data();
+  const size_t old_capacity = storage->nbytes();
+  const size_t copy_capacity = std::min(new_size_bytes, old_capacity);
+
+  if (old_data != nullptr && copy_capacity > 0) {
+    DeviceTraits<c10::DeviceType::CPU>::memcpy(
+        new_data, old_data, copy_capacity, device, device);
+  }
+
+  if (old_data != nullptr) {
+    DeviceTraits<c10::DeviceType::CPU>::free(old_data);
+  }
+
+  storage->set_data_ptr(new_data);
+  storage->set_nbytes(new_size_bytes);
+}
 
 } // namespace torch::standalone
