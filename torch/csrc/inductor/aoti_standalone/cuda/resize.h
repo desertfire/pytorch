@@ -15,14 +15,7 @@ AOTITorchError aoti_torch_cuda_resize_(
     int64_t size_len_,
     int32_t* memory_format) {
   try {
-    SlimTensor* tensor = reinterpret_cast<SlimTensor*>(self);
-    ArrayRef size_ref(size, size_len_);
-    std::optional<c10::MemoryFormat> optional_memory_format;
-    if (memory_format) {
-      optional_memory_format = static_cast<c10::MemoryFormat>(*memory_format);
-    }
-    _resize_(*tensor, size_ref, optional_memory_format);
-
+    resize_(self, size, size_len_, memory_format);
     return AOTI_TORCH_SUCCESS;
   } catch (const std::exception& e) {
     return AOTI_TORCH_FAILURE;
