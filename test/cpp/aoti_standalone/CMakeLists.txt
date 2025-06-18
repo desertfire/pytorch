@@ -11,13 +11,6 @@ add_executable(test_aoti_standalone
 # TODO temporary until we can delete the old gtest polyfills.
 target_compile_definitions(test_aoti_standalone PRIVATE USE_GTEST)
 
-# Define a custom command to generate the library
-add_custom_command(
-        OUTPUT data.pt
-        COMMAND python ${AOT_INDUCTOR_TEST_ROOT}/test.py
-        DEPENDS ${AOT_INDUCTOR_TEST_ROOT}/test.py
-)
-
 target_link_libraries(test_aoti_standalone PRIVATE
   torch
   gtest_main
