@@ -6,7 +6,7 @@
 namespace torch::standalone {
 
 template <>
-SlimTensor empty_tensor(
+inline SlimTensor empty_tensor(
     ArrayRef sizes,
     ArrayRef strides,
     ScalarType dtype,
