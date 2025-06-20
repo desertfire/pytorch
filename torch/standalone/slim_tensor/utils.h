@@ -40,6 +40,58 @@ inline size_t safe_compute_nbytes(uint64_t numel, c10::ScalarType dtype) {
   TORCH_CHECK(!overflows, "nbytes: integer multiplication overflow");
   return static_cast<size_t>(nbytes);
 }
+
+// Helper function for safe storage nbytes computation with overflow checks
+inline int64_t safe_compute_storage_nbytes(
+    ArrayRef sizes,
+    ArrayRef strides,
+    size_t itemsize,
+    int64_t storage_offset) {
+  if (sizes.empty()) {
+    uint64_t result;
+    bool overflows = c10::mul_overflows(
+        static_cast<uint64_t>(itemsize),
+        static_cast<uint64_t>(storage_offset),
+        &result);
+    constexpr auto max_val =
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    overflows |= (result > max_val);
+    TORCH_CHECK(!overflows, "storage_nbytes: integer multiplication overflow");
+    return static_cast<int64_t>(result);
+  }
+
+  uint64_t size = 1;
+  for (size_t i = 0; i < sizes.size(); i++) {
+    if (sizes[i] == 0) {
+      return 0;
+    }
+
+    uint64_t stride_contribution;
+    bool overflows = c10::mul_overflows(
+        static_cast<uint64_t>(strides[i]),
+        static_cast<uint64_t>(sizes[i] - 1),
+        &stride_contribution);
+    TORCH_CHECK(!overflows, "storage_nbytes: stride computation overflow");
+
+    overflows = c10::add_overflows(size, stride_contribution, &size);
+    TORCH_CHECK(!overflows, "storage_nbytes: size accumulation overflow");
+  }
+
+  uint64_t total_size;
+  bool overflows = c10::add_overflows(
+      size, static_cast<uint64_t>(storage_offset), &total_size);
+  TORCH_CHECK(!overflows, "storage_nbytes: storage_offset addition overflow");
+
+  uint64_t result;
+  overflows =
+      c10::mul_overflows(static_cast<uint64_t>(itemsize), total_size, &result);
+  constexpr auto max_val =
+      static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+  overflows |= (result > max_val);
+  TORCH_CHECK(!overflows, "storage_nbytes: final multiplication overflow");
+
+  return static_cast<int64_t>(result);
+}
 #endif
 
 inline size_t compute_numel(const ArrayRef& sizes) {
@@ -70,10 +122,7 @@ inline int64_t compute_storage_nbytes_contiguous(
     ArrayRef sizes,
     size_t itemsize,
     int64_t storage_offset) {
-  int64_t numel = 1;
-  for (auto s : sizes) {
-    numel *= s;
-  }
+  int64_t numel = static_cast<int64_t>(compute_numel(sizes));
   return static_cast<int64_t>(itemsize) * (storage_offset + numel);
 }
 
@@ -82,6 +131,9 @@ inline int64_t compute_storage_nbytes(
     ArrayRef strides,
     size_t itemsize,
     int64_t storage_offset) {
+#if C10_HAS_BUILTIN_OVERFLOW()
+  return safe_compute_storage_nbytes(sizes, strides, itemsize, storage_offset);
+#else
   if (sizes.empty()) {
     return static_cast<int64_t>(itemsize) * storage_offset;
   }
@@ -94,6 +146,7 @@ inline int64_t compute_storage_nbytes(
     size += strides[i] * (sizes[i] - 1);
   }
   return static_cast<int64_t>(itemsize) * (storage_offset + size);
+#endif
 }
 
 } // namespace torch::standalone
