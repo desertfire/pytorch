@@ -228,9 +228,8 @@ class SlimTensor {
     throw std::runtime_error("TBD: to(dtype)");
   }
 
-  SlimTensor permute(ArrayRef dims) const {
+  SlimTensor permute(const ArrayRef& dims) const {
     const int64_t ndim = static_cast<int64_t>(this->dim());
-
     TORCH_CHECK(
         ndim == static_cast<int64_t>(dims.size()),
         "permute: dims length must be equal to tensor.dim()")
