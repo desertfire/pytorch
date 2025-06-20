@@ -12,6 +12,7 @@ namespace torch::standalone {
 template <typename T>
 class MaybeOwningArrayRef final {
  public:
+  using value_type = T;
   using iterator = T*;
   using const_iterator = const T*;
   using reverse_iterator = std::reverse_iterator<iterator>;
@@ -206,5 +207,15 @@ class MaybeOwningArrayRef final {
 };
 
 using ArrayRef = MaybeOwningArrayRef<const int64_t>;
+
+template <typename T>
+inline bool operator==(
+    const MaybeOwningArrayRef<T>& lhs,
+    const MaybeOwningArrayRef<T>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+}
 
 } // namespace torch::standalone

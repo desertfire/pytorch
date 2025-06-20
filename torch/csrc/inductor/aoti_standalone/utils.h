@@ -27,6 +27,7 @@ using AOTITorchError = int32_t;
   }                                                       \
   return AOTI_TORCH_SUCCESS;
 
+namespace torch::standalone {
 inline int64_t maybe_wrap_dim(int64_t dim, int64_t ndim) {
   if (dim < 0) {
     dim += ndim;
@@ -36,3 +37,5 @@ inline int64_t maybe_wrap_dim(int64_t dim, int64_t ndim) {
   }
   return dim;
 }
+
+} // namespace torch::standalone
