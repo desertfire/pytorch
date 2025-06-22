@@ -5,18 +5,18 @@
 
 // OK to use c10 headers here because their corresponding cpp files will be
 // included in the final binary.
+#include <c10/util/ArrayRef.h>
 #include <c10/util/Exception.h>
 #include <c10/util/accumulate.h>
 #include <c10/util/safe_numerics.h>
 #include <torch/standalone/core/Device.h>
 #include <torch/standalone/core/ScalarType.h>
-#include <torch/standalone/slim_tensor/array_ref.h>
 
 namespace torch::standalone {
 
 #if C10_HAS_BUILTIN_OVERFLOW()
 // Helper function for safe numel computation with overflow checks
-inline size_t safe_compute_numel(const ArrayRef& sizes) {
+inline size_t safe_compute_numel(c10::IntArrayRef sizes) {
   uint64_t n = 1;
   bool overflows = c10::safe_multiplies_u64(sizes, &n);
   constexpr auto numel_max = std::min(
@@ -31,7 +31,7 @@ inline size_t safe_compute_numel(const ArrayRef& sizes) {
 // Helper function for safe nbytes computation with overflow checks
 inline size_t safe_compute_nbytes(uint64_t numel, c10::ScalarType dtype) {
   uint64_t element_size = elementSize(dtype);
-  uint64_t nbytes;
+  uint64_t nbytes = 0;
 
   bool overflows = c10::mul_overflows(numel, element_size, &nbytes);
   constexpr auto nbytes_max = std::numeric_limits<size_t>::max();
@@ -43,12 +43,12 @@ inline size_t safe_compute_nbytes(uint64_t numel, c10::ScalarType dtype) {
 
 // Helper function for safe storage nbytes computation with overflow checks
 inline int64_t safe_compute_storage_nbytes(
-    ArrayRef sizes,
-    ArrayRef strides,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides,
     size_t itemsize,
     int64_t storage_offset) {
   if (sizes.empty()) {
-    uint64_t result;
+    uint64_t result = 0;
     bool overflows = c10::mul_overflows(
         static_cast<uint64_t>(itemsize),
         static_cast<uint64_t>(storage_offset),
@@ -66,7 +66,7 @@ inline int64_t safe_compute_storage_nbytes(
       return 0;
     }
 
-    uint64_t stride_contribution;
+    uint64_t stride_contribution = 0;
     bool overflows = c10::mul_overflows(
         static_cast<uint64_t>(strides[i]),
         static_cast<uint64_t>(sizes[i] - 1),
@@ -77,12 +77,12 @@ inline int64_t safe_compute_storage_nbytes(
     TORCH_CHECK(!overflows, "storage_nbytes: size accumulation overflow");
   }
 
-  uint64_t total_size;
+  uint64_t total_size = 0;
   bool overflows = c10::add_overflows(
       size, static_cast<uint64_t>(storage_offset), &total_size);
   TORCH_CHECK(!overflows, "storage_nbytes: storage_offset addition overflow");
 
-  uint64_t result;
+  uint64_t result = 0;
   overflows =
       c10::mul_overflows(static_cast<uint64_t>(itemsize), total_size, &result);
   constexpr auto max_val =
@@ -94,7 +94,7 @@ inline int64_t safe_compute_storage_nbytes(
 }
 #endif
 
-inline size_t compute_numel(const ArrayRef& sizes) {
+inline size_t compute_numel(c10::IntArrayRef sizes) {
 #if C10_HAS_BUILTIN_OVERFLOW()
   return safe_compute_numel(sizes);
 #else
@@ -102,7 +102,7 @@ inline size_t compute_numel(const ArrayRef& sizes) {
 #endif
 }
 
-inline size_t compute_nbytes(const ArrayRef& sizes, c10::ScalarType dtype) {
+inline size_t compute_nbytes(c10::IntArrayRef sizes, c10::ScalarType dtype) {
 #if C10_HAS_BUILTIN_OVERFLOW()
   return safe_compute_nbytes(safe_compute_numel(sizes), dtype);
 #else
@@ -119,7 +119,7 @@ inline size_t compute_nbytes(size_t numel, c10::ScalarType dtype) {
 }
 
 inline int64_t compute_storage_nbytes_contiguous(
-    ArrayRef sizes,
+    c10::IntArrayRef sizes,
     size_t itemsize,
     int64_t storage_offset) {
   int64_t numel = static_cast<int64_t>(compute_numel(sizes));
@@ -127,8 +127,8 @@ inline int64_t compute_storage_nbytes_contiguous(
 }
 
 inline int64_t compute_storage_nbytes(
-    ArrayRef sizes,
-    ArrayRef strides,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides,
     size_t itemsize,
     int64_t storage_offset) {
 #if C10_HAS_BUILTIN_OVERFLOW()

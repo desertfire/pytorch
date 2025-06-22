@@ -5,7 +5,7 @@
 
 namespace torch::standalone {
 
-template <class T, class AREF>
+template <class T>
 T hann_window_template(
     int64_t window_length,
     ScalarType dtype,
@@ -21,10 +21,10 @@ T hann_window_template(
 
   std::array<int64_t, 1> size_buf = {window_length};
   std::array<int64_t, 1> stride_buf = {1};
-  AREF sizes = {size_buf.data(), 1};
-  AREF strides = {stride_buf.data(), 1};
+  c10::IntArrayRef sizes = {size_buf.data(), 1};
+  c10::IntArrayRef strides = {stride_buf.data(), 1};
 
-  T out = empty_tensor<T, AREF>(sizes, strides, dtype, device, /*offset=*/0);
+  T out = empty_tensor<T>(sizes, strides, dtype, device, /*offset=*/0);
   auto* data = static_cast<float*>(out.data_ptr());
 
   if (window_length == 0)

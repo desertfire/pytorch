@@ -123,16 +123,17 @@ inline AOTITorchError aoti_torch_create_tensor_from_blob_v2(
     int32_t layout,
     const uint8_t* opaque_metadata,
     int64_t opaque_metadata_size) {
-  torch::standalone::ArrayRef sizes(sizes_ptr, ndim);
-  torch::standalone::ArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new torch::standalone::SlimTensor(create_tensor_from_blob(
-      data,
-      sizes,
-      strides,
-      static_cast<c10::ScalarType>(dtype),
-      {static_cast<c10::DeviceType>(device_type),
-       static_cast<c10::DeviceIndex>(device_index)},
-      storage_offset));
+  c10::IntArrayRef sizes(sizes_ptr, ndim);
+  c10::IntArrayRef strides(strides_ptr, ndim);
+  *ret_new_tensor = new torch::standalone::SlimTensor(
+      torch::standalone::create_tensor_from_blob(
+          data,
+          sizes,
+          strides,
+          static_cast<c10::ScalarType>(dtype),
+          {static_cast<c10::DeviceType>(device_type),
+           static_cast<c10::DeviceIndex>(device_index)},
+          storage_offset));
   return AOTI_TORCH_SUCCESS;
 }
 
@@ -144,15 +145,16 @@ inline AOTITorchError aoti_torch_empty_strided(
     int32_t device_type,
     int32_t device_index,
     AtenTensorHandle* ret_new_tensor) {
-  torch::standalone::ArrayRef sizes(sizes_ptr, ndim);
-  torch::standalone::ArrayRef strides(strides_ptr, ndim);
-  *ret_new_tensor = new torch::standalone::SlimTensor(create_empty_tensor(
-      sizes,
-      strides,
-      static_cast<c10::ScalarType>(dtype),
-      {static_cast<c10::DeviceType>(device_type),
-       static_cast<c10::DeviceIndex>(device_index)},
-      0));
+  c10::IntArrayRef sizes(sizes_ptr, ndim);
+  c10::IntArrayRef strides(strides_ptr, ndim);
+  *ret_new_tensor =
+      new torch::standalone::SlimTensor(torch::standalone::create_empty_tensor(
+          sizes,
+          strides,
+          static_cast<c10::ScalarType>(dtype),
+          {static_cast<c10::DeviceType>(device_type),
+           static_cast<c10::DeviceIndex>(device_index)},
+          0));
   return AOTI_TORCH_SUCCESS;
 }
 
@@ -163,8 +165,8 @@ inline AOTITorchError aoti_torch__reinterpret_tensor(
     const int64_t* strides_ptr,
     int64_t offset_increment,
     AtenTensorHandle* ret_new_tensor) {
-  torch::standalone::ArrayRef sizes(sizes_ptr, ndim);
-  torch::standalone::ArrayRef strides(strides_ptr, ndim);
+  c10::IntArrayRef sizes(sizes_ptr, ndim);
+  c10::IntArrayRef strides(strides_ptr, ndim);
   *ret_new_tensor = new torch::standalone::SlimTensor(
       self->storage(),
       sizes,
@@ -179,8 +181,8 @@ inline AOTITorchError aoti_torch_as_strided(
     const int64_t* sizes_ptr,
     const int64_t* strides_ptr,
     AtenTensorHandle* ret) {
-  torch::standalone::ArrayRef sizes(sizes_ptr, self->dim());
-  torch::standalone::ArrayRef strides(strides_ptr, self->dim());
+  c10::IntArrayRef sizes(sizes_ptr, self->dim());
+  c10::IntArrayRef strides(strides_ptr, self->dim());
   *ret = new torch::standalone::SlimTensor(
       self->storage(), sizes, strides, self->dtype(), self->storage_offset());
   return AOTI_TORCH_SUCCESS;
@@ -189,12 +191,13 @@ inline AOTITorchError aoti_torch_as_strided(
 inline AOTITorchError aoti_torch_clone(
     AtenTensorHandle self,
     AtenTensorHandle* ret) {
-  torch::standalone::SlimTensor tmp_tensor = create_empty_tensor(
-      self->sizes(),
-      self->strides(),
-      self->dtype(),
-      {self->device_type(), self->device_index()},
-      0);
+  torch::standalone::SlimTensor tmp_tensor =
+      torch::standalone::create_empty_tensor(
+          self->sizes(),
+          self->strides(),
+          self->dtype(),
+          {self->device_type(), self->device_index()},
+          0);
   tmp_tensor.copy_(*self);
   *ret = new torch::standalone::SlimTensor(tmp_tensor);
   return AOTI_TORCH_SUCCESS;
