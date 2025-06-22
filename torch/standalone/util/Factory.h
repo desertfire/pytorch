@@ -3,15 +3,16 @@
 #include <sstream>
 #include <string>
 
+#include <c10/util/ArrayRef.h>
 #include <torch/standalone/core/Device.h>
 #include <torch/standalone/core/ScalarType.h>
 
 namespace torch::standalone {
 
-template <class T, class A>
+template <class T>
 T empty_tensor(
-    A sizes,
-    A strides,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides,
     torch::standalone::ScalarType dtype,
     torch::standalone::Device device,
     int64_t storage_offset) {

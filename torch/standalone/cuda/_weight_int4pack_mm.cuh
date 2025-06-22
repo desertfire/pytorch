@@ -997,7 +997,7 @@ void launch_tinygemm_kernel(
 #endif // defined(USE_ROCM) || ((defined(CUDA_VERSION) && CUDA_VERSION >= 12000) && (!defined
 
 
-template <typename T, typename AREF>
+template <typename T>
 T _weight_int4pack_mm_cuda(
     const T& A,
     const T& B,
@@ -1072,7 +1072,7 @@ T _weight_int4pack_mm_cuda(
   TORCH_CHECK(qScaleAndZeros.size(2) == 2);
 
   // Output is a standard row-major matrix
-  auto C_final = empty_tensor<T, AREF>(
+  auto C_final = empty_tensor<T>(
     {m, n},
     {n, 1},
     torch::standalone::ScalarType::BFloat16,

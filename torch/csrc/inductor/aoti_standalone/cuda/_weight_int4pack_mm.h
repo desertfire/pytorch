@@ -16,8 +16,8 @@ inline AOTITorchError aoti_torch_cuda__weight_int4pack_mm(
     AtenTensorHandle* ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = torch::standalone::_weight_int4pack_mm_cuda<
-        torch::standalone::SlimTensor,
-        torch::standalone::ArrayRef>(*self, *mat2, qGroupSize, *qScaleAndZeros);
+        torch::standalone::SlimTensor>(
+        *self, *mat2, qGroupSize, *qScaleAndZeros);
     *ret0 = new torch::standalone::SlimTensor(std::move(tmp_result));
   });
 }

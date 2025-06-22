@@ -6,9 +6,9 @@
 namespace torch::standalone {
 
 template <>
-SlimTensor empty_tensor(
-    ArrayRef sizes,
-    ArrayRef strides,
+inline SlimTensor empty_tensor(
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides,
     ScalarType dtype,
     Device device,
 

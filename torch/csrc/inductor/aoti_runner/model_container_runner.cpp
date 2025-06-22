@@ -190,16 +190,15 @@ std::vector<at::Tensor> AOTIModelContainerRunner::slim_tensor_run_impl(
   for (const at::Tensor& tensor : std::move(inputs)) {
     // Unsafe allocation, object will be released by run_func_.
     // reinterpret_cast to AtenTensorHandle to match the interface.
-    input_handles.push_back(reinterpret_cast<AtenTensorHandle>(
-        new torch::standalone::SlimTensor(create_tensor_from_blob(
-            tensor.data_ptr(),
-            torch::standalone::ArrayRef(
-                tensor.sizes().data(), tensor.sizes().size()),
-            torch::standalone::ArrayRef(
-                tensor.strides().data(), tensor.strides().size()),
-            tensor.scalar_type(),
-            tensor.device(),
-            tensor.storage_offset()))));
+    input_handles.push_back(
+        reinterpret_cast<AtenTensorHandle>(new torch::standalone::SlimTensor(
+            torch::standalone::create_tensor_from_blob(
+                tensor.data_ptr(),
+                tensor.sizes(),
+                tensor.strides(),
+                tensor.scalar_type(),
+                tensor.device(),
+                tensor.storage_offset()))));
   }
 
   size_t num_outputs = 0;

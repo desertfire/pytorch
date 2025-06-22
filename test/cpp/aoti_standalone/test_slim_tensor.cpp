@@ -3,7 +3,6 @@
 
 #include <c10/core/MemoryFormat.h>
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
-#include <torch/standalone/slim_tensor/array_ref.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 
 namespace torch::standalone {
@@ -15,7 +14,7 @@ TEST(SlimTensorInternalTest, SetSizesContiguous) {
   EXPECT_EQ(tensor.numel(), 1);
 
   std::vector<int64_t> new_size_vec = {2, 3, 4};
-  ArrayRef new_sizes(new_size_vec.data(), new_size_vec.size());
+  c10::IntArrayRef new_sizes(new_size_vec.data(), new_size_vec.size());
   tensor.set_sizes_contiguous(new_sizes);
 
   EXPECT_EQ(tensor.dim(), 3);
@@ -35,8 +34,8 @@ TEST(SlimTensorInternalTest, SetSizesAndStridesNonContiguous) {
 
   // Strides of original (2, 4) were {4, 1}
   std::vector<int64_t> new_stride_vec = {1, 4};
-  ArrayRef new_sizes(new_size_vec.data(), new_size_vec.size());
-  ArrayRef new_strides(new_stride_vec.data(), new_stride_vec.size());
+  c10::IntArrayRef new_sizes(new_size_vec.data(), new_size_vec.size());
+  c10::IntArrayRef new_strides(new_stride_vec.data(), new_stride_vec.size());
 
   tensor.set_sizes_and_strides(new_sizes, new_strides);
 
@@ -55,8 +54,8 @@ TEST(SlimTensorInternalTest, EmptyTensorRestride) {
   std::vector<int64_t> size_vec = {4, 2};
   std::vector<int64_t> stride_vec = {1, 4}; // Non-contiguous strides
   tensor.set_sizes_and_strides(
-      ArrayRef(size_vec.data(), size_vec.size()),
-      ArrayRef(stride_vec.data(), stride_vec.size()));
+      c10::IntArrayRef(size_vec.data(), size_vec.size()),
+      c10::IntArrayRef(stride_vec.data(), stride_vec.size()));
   // it shouldn't be contiguous first
   EXPECT_FALSE(tensor.is_contiguous());
 
