@@ -20,11 +20,11 @@ inline void _maybe_resize_storage_cpu(T* self, int64_t new_size_bytes) {
   }
 }
 
-template <typename T, typename AREF>
+template <typename T>
 inline T* _resize_impl_(
     T* self,
-    AREF size,
-    std::optional<AREF> stride,
+    c10::IntArrayRef size,
+    std::optional<c10::IntArrayRef> stride,
     bool resize_storage) {
   if (self->sizes() == size && (!stride || self->strides() == stride.value())) {
     return self;
@@ -51,18 +51,18 @@ inline T* _resize_impl_(
   return self;
 }
 
-template <typename T, typename AREF>
+template <typename T>
 inline const T& _resize_(
     const T& self,
-    AREF size,
+    c10::IntArrayRef size,
     std::optional<c10::MemoryFormat> optional_memory_format) {
   T* self_ = const_cast<T*>(&self);
-  _resize_impl_<T, AREF>(self_, size, /*stride=*/std::nullopt, true);
+  _resize_impl_<T>(self_, size, /*stride=*/std::nullopt, true);
 
   if (optional_memory_format.has_value()) {
     c10::MemoryFormat memory_format =
         static_cast<c10::MemoryFormat>(optional_memory_format.value());
-    AOTI_TORCH_CHECK(
+    TORCH_CHECK(
         memory_format != c10::MemoryFormat::Preserve,
         "Unsupported memory format",
         memory_format);
