@@ -137,26 +137,39 @@ TEST(SlimTensorTest, ResizeOpToZeroCPU) {
 }
 
 // Test case 4: Resizing a tensor to a larger size for CUDA.
-// This MUST also reallocate the underlying data buffer.
+// This MUST also reallocate the underlying data buffer on the GPU.
+#if defined(USE_CUDA)
 TEST(SlimTensorTest, ResizeOpGrowCUDA) {
-  at::Tensor at_tensor = at::arange(4, at::kFloat).reshape({2, 2});
+  // 1. Setup: Check for CUDA device at runtime and define it
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA not available, skipping test";
+  }
+  at::Device cuda_device(at::kCUDA);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(cuda_device);
+
+  // Create the ground-truth tensor explicitly on the CUDA device
+  at::Tensor at_tensor = at::arange(4, options).reshape({2, 2});
   at::Tensor at_tensor_for_resize = at_tensor.clone();
 
-  // Create an OWNING SlimTensor by creating a fresh empty tensor
-  // and copying the data. This is essential because we can't reallocate
-  // the memory of an at::Tensor that we don't own.
+  // 2. Create an OWNING SlimTensor explicitly on the CUDA device.
   SlimTensor slim_tensor = create_empty_tensor(
-      {at_tensor.sizes().data(), (size_t)at_tensor.dim()},
-      {at_tensor.strides().data(), (size_t)at_tensor.dim()},
-      at_tensor.scalar_type());
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at_tensor.scalar_type(),
+      cuda_device);
+  // Copy the CUDA data into our owning SlimTensor
   slim_tensor.copy_(create_tensor_from_blob(
       at_tensor.data_ptr(),
-      {at_tensor.sizes().data(), static_cast<size_t>(at_tensor.dim())},
-      {at_tensor.strides().data(), static_cast<size_t>(at_tensor.dim())},
-      at_tensor.scalar_type()));
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at_tensor.scalar_type(),
+      cuda_device));
   void* original_data_ptr = slim_tensor.data_ptr();
 
-  // perform the resize operation on our slim tensor
+  // Check device BEFORE resize
+  EXPECT_TRUE(slim_tensor.device().is_cuda());
+
+  // 3. Action: perform the resize operation
   std::vector<int64_t> new_size = {3, 3};
   AOTITorchError err = aoti_torch_cuda_resize_(
       reinterpret_cast<AtenTensorHandle>(&slim_tensor),
@@ -164,10 +177,13 @@ TEST(SlimTensorTest, ResizeOpGrowCUDA) {
       new_size.size(),
       nullptr);
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  // aten will fill new memory with arbitrary data
+
+  // Resize the ground-truth tensor
   at_tensor_for_resize.resize_({3, 3});
 
-  // verify
+  // 4. Verify Metadata
+  // Check device AFTER resize
+  EXPECT_TRUE(slim_tensor.device().is_cuda());
   EXPECT_EQ(slim_tensor.dim(), 2);
   EXPECT_THAT(slim_tensor.sizes(), ElementsAreArray({3, 3}));
   EXPECT_EQ(slim_tensor.numel(), 9);
@@ -175,11 +191,16 @@ TEST(SlimTensorTest, ResizeOpGrowCUDA) {
   // For growing, the data pointer MUST change
   EXPECT_NE(slim_tensor.data_ptr(), original_data_ptr);
 
-  // Check that the original data was copied to the new buffer
-  float* slim_data = static_cast<float*>(slim_tensor.data_ptr());
+  // 5. Verify Data Content
+  // CRITICAL: Copy the resized slim_tensor back to the CPU to access its data.
+  SlimTensor slim_tensor_cpu = slim_tensor.to(c10::Device(c10::DeviceType::CPU));
+  float* slim_data_on_cpu = static_cast<float*>(slim_tensor_cpu.data_ptr());
+
+  // The first 4 elements should be the original data
   for (size_t i = 0; i < 4; i++) {
-    EXPECT_FLOAT_EQ(slim_data[i], static_cast<float>(i));
+    EXPECT_FLOAT_EQ(slim_data_on_cpu[i], static_cast<float>(i));
   }
 }
+#endif // USE_CUDA
 
 } // namespace torch::standalone

@@ -5,7 +5,7 @@
 namespace torch::standalone {
 
 template <typename T>
-inline void _maybe_resize_storage_cpu(T* self, int64_t new_size_bytes) {
+inline void _maybe_resize_storage(T* self, int64_t new_size_bytes) {
   if (self->numel() == 0) {
     return;
   }
@@ -16,7 +16,7 @@ inline void _maybe_resize_storage_cpu(T* self, int64_t new_size_bytes) {
     Storage new_storage(new MaybeOwningStorage(new_size_bytes, self->device()));
     self->set_storage(std::move(new_storage));
   } else if (new_size_bytes > static_cast<int64_t>(storage->nbytes())) {
-    resize_bytes_cpu(storage.get(), new_size_bytes);
+    resize_bytes(storage.get(), new_size_bytes);
   }
 }
 
@@ -45,7 +45,7 @@ inline T* _resize_impl_(
   }
 
   if (resize_storage) {
-    _maybe_resize_storage_cpu(self, storage_size);
+    _maybe_resize_storage(self, storage_size);
   }
 
   return self;
