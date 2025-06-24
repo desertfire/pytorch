@@ -193,7 +193,8 @@ TEST(SlimTensorTest, ResizeOpGrowCUDA) {
 
   // 5. Verify Data Content
   // CRITICAL: Copy the resized slim_tensor back to the CPU to access its data.
-  SlimTensor slim_tensor_cpu = slim_tensor.to(c10::Device(c10::DeviceType::CPU));
+  SlimTensor slim_tensor_cpu =
+      slim_tensor.to(c10::Device(c10::DeviceType::CPU));
   float* slim_data_on_cpu = static_cast<float*>(slim_tensor_cpu.data_ptr());
 
   // The first 4 elements should be the original data

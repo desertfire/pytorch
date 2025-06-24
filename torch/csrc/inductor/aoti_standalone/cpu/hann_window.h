@@ -17,10 +17,12 @@ inline AOTITorchError aoti_torch_cpu_hann_window(
     int32_t device_index_,
     int32_t* pin_memory,
     AtenTensorHandle* ret0) {
-  torch::standalone::SlimTensor tensor = torch::standalone::hann_window_template<torch::standalone::SlimTensor>(
-      window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
+  torch::standalone::SlimTensor tensor =
+      torch::standalone::hann_window_template<torch::standalone::SlimTensor>(
+          window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
 
-  *ret0 = reinterpret_cast<AtenTensorHandle>(new torch::standalone::SlimTensor(std::move(tensor)));
+  *ret0 = reinterpret_cast<AtenTensorHandle>(
+      new torch::standalone::SlimTensor(std::move(tensor)));
   return AOTI_TORCH_SUCCESS;
 }
 

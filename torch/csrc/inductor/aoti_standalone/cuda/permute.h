@@ -12,10 +12,12 @@ inline AOTITorchError aoti_torch_cuda_permute(
     const int64_t* dims,
     int64_t dims_len,
     AtenTensorHandle* ret0) {
-  torch::standalone::SlimTensor& self = *reinterpret_cast<torch::standalone::SlimTensor*>(self_h);
+  torch::standalone::SlimTensor& self =
+      *reinterpret_cast<torch::standalone::SlimTensor*>(self_h);
   c10::IntArrayRef dims_ref(dims, static_cast<size_t>(dims_len));
   torch::standalone::SlimTensor result = self.permute(dims_ref);
-  *ret0 = reinterpret_cast<AtenTensorHandle>(new torch::standalone::SlimTensor(std::move(result)));
+  *ret0 = reinterpret_cast<AtenTensorHandle>(
+      new torch::standalone::SlimTensor(std::move(result)));
   return AOTI_TORCH_SUCCESS;
 }
 
