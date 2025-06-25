@@ -201,6 +201,9 @@ class SlimTensor {
     sizes_and_strides_.set_sizes(sizes);
     sizes_and_strides_.set_strides(strides);
     storage_offset_ = storage_offset;
+
+    refresh_numel();
+    refresh_contiguous();
     return *this;
   }
 
