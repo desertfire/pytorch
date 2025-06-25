@@ -8,8 +8,6 @@
 #include <torch/torch.h>
 #include <cstdint>
 
-namespace torch::standalone {
-
 // Test case for a float scalar tensor
 TEST(ScalarTensorTest, ScalarTensorOp) {
   // Define the scalar and options
@@ -38,7 +36,8 @@ TEST(ScalarTensorTest, ScalarTensorOp) {
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
 
-  SlimTensor* slim_tensor = reinterpret_cast<SlimTensor*>(slim_tensor_handle);
+  torch::standalone::SlimTensor* slim_tensor =
+      reinterpret_cast<torch::standalone::SlimTensor*>(slim_tensor_handle);
 
   // Check metadata
   ASSERT_NE(slim_tensor, nullptr);
@@ -70,7 +69,8 @@ TEST(ScalarTensorTest, ScalarTensorOpLong) {
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
 
-  SlimTensor* slim_tensor = reinterpret_cast<SlimTensor*>(slim_tensor_handle);
+  torch::standalone::SlimTensor* slim_tensor =
+      reinterpret_cast<torch::standalone::SlimTensor*>(slim_tensor_handle);
 
   ASSERT_NE(slim_tensor, nullptr);
   EXPECT_EQ(slim_tensor->numel(), 1);
@@ -98,7 +98,8 @@ TEST(ScalarTensorTest, ScalarTensorOpBoolTrue) {
       scalar_value, &dtype, nullptr, &device, 0, nullptr, &slim_tensor_handle);
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_tensor = reinterpret_cast<SlimTensor*>(slim_tensor_handle);
+  torch::standalone::SlimTensor* slim_tensor =
+      reinterpret_cast<torch::standalone::SlimTensor*>(slim_tensor_handle);
 
   ASSERT_NE(slim_tensor, nullptr);
   EXPECT_EQ(slim_tensor->dtype(), at::kBool);
@@ -125,7 +126,8 @@ TEST(ScalarTensorTest, ScalarTensorOpBoolFalse) {
       scalar_value, &dtype, nullptr, &device, 0, nullptr, &slim_tensor_handle);
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_tensor = reinterpret_cast<SlimTensor*>(slim_tensor_handle);
+  torch::standalone::SlimTensor* slim_tensor =
+      reinterpret_cast<torch::standalone::SlimTensor*>(slim_tensor_handle);
 
   ASSERT_NE(slim_tensor, nullptr);
   EXPECT_EQ(slim_tensor->dtype(), at::kBool);
@@ -138,4 +140,52 @@ TEST(ScalarTensorTest, ScalarTensorOpBoolFalse) {
   delete slim_tensor;
 }
 
-} // namespace torch::standalone
+// Test case for a bool scalar from a non-zero value on CUDA.
+#if defined(USE_CUDA)
+TEST(ScalarTensorTest, ScalarTensorOpBoolTrueCUDA) {
+  // Check for CUDA device at runtime
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA not available, skipping test";
+  }
+
+  const double scalar_value = -100.0; // Non-zero
+  at::Device cuda_device(at::kCUDA);
+  auto options = at::TensorOptions().dtype(at::kBool).device(cuda_device);
+  at::Tensor at_tensor = at::scalar_tensor(scalar_value, options);
+
+  AtenTensorHandle slim_tensor_handle = nullptr;
+  auto dtype = static_cast<int32_t>(options.dtype().toScalarType());
+  auto device = static_cast<int32_t>(options.device().type());
+  auto device_index = static_cast<int32_t>(options.device().index());
+
+  AOTITorchError err = aoti_torch_cuda_scalar_tensor(
+      scalar_value,
+      &dtype,
+      nullptr,
+      &device,
+      device_index,
+      nullptr,
+      &slim_tensor_handle);
+
+  ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
+  torch::standalone::SlimTensor* slim_tensor =
+      reinterpret_cast<torch::standalone::SlimTensor*>(slim_tensor_handle);
+
+  ASSERT_NE(slim_tensor, nullptr);
+  EXPECT_EQ(slim_tensor->dtype(), at::kBool);
+  EXPECT_TRUE(slim_tensor->device().is_cuda());
+
+  // Copy tensor to CPU to access data
+  torch::standalone::SlimTensor slim_tensor_cpu =
+      slim_tensor->to(c10::Device(c10::DeviceType::CPU));
+  bool slim_data_value = *static_cast<bool*>(slim_tensor_cpu.data_ptr());
+
+  at::Tensor at_tensor_cpu = at_tensor.to(c10::Device(c10::DeviceType::CPU));
+  bool at_data_value = *static_cast<bool*>(at_tensor_cpu.data_ptr());
+
+  EXPECT_EQ(slim_data_value, at_data_value);
+  EXPECT_EQ(slim_data_value, true);
+
+  delete slim_tensor;
+}
+#endif // USE_CUDA

@@ -4,6 +4,10 @@
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <torch/standalone/slim_tensor/utils.h>
 
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
+
 namespace torch::standalone {
 
 template <typename T>
@@ -14,7 +18,21 @@ inline void scalar_fill(T& tensor, const c10::Scalar& value) {
 
   auto fill_value = [&](auto typed_value) {
     using SType = decltype(typed_value);
-    *static_cast<SType*>(tensor.data_ptr()) = typed_value;
+    if (tensor.device().is_cuda()) {
+#ifdef USE_CUDA
+      cudaError_t err = cudaMemcpy(
+          tensor.data_ptr(),
+          &typed_value,
+          sizeof(SType),
+          cudaMemcpyHostToDevice);
+      TORCH_CHECK(
+          err == cudaSuccess, "CUDA memcpy failed: ", cudaGetErrorString(err));
+#else
+      TORCH_CHECK(false, "CUDA support not available");
+#endif
+    } else if (tensor.device().is_cpu()) {
+      *static_cast<SType*>(tensor.data_ptr()) = typed_value;
+    }
   };
 
   switch (tensor.dtype()) {
