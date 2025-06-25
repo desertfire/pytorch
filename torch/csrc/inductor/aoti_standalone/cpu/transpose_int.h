@@ -16,7 +16,7 @@ AOTITorchError aoti_torch_cpu_transpose_int(
   torch::standalone::SlimTensor* self_tensor =
       reinterpret_cast<torch::standalone::SlimTensor*>(self);
   torch::standalone::SlimTensor result_tensor =
-      transpose_template(*self_tensor, dim0, dim1);
+      _transpose(*self_tensor, dim0, dim1);
   *ret0 = reinterpret_cast<AtenTensorHandle>(
       new torch::standalone::SlimTensor(std::move(result_tensor)));
   return AOTI_TORCH_SUCCESS;

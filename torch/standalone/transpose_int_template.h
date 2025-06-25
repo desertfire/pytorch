@@ -8,13 +8,12 @@
 namespace torch::standalone {
 
 template <typename T>
-inline T transpose_template(const T& self, int64_t dim0, int64_t dim1) {
+inline T _transpose(const T& self, int64_t dim0, int64_t dim1) {
   int64_t ndim = self.dim();
   dim0 = torch::standalone::maybe_wrap_dim(dim0, ndim);
   dim1 = torch::standalone::maybe_wrap_dim(dim1, ndim);
 
   // if dimensions are the same, return a copy that is an alias.
-  // TODO: check if true
   if (dim0 == dim1) {
     return self;
   }
