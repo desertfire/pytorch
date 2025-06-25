@@ -66,7 +66,7 @@ inline void scalar_fill(T& tensor, const c10::Scalar& value) {
 }
 
 template <class T>
-T scalar_tensor_template(
+T _scalar_tensor(
     const c10::Scalar& s,
     c10::ScalarType dtype,
     c10::Device device) {

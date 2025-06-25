@@ -26,7 +26,7 @@ AOTITorchError aoti_torch_cuda_scalar_tensor(
       c10::DeviceType::CUDA, static_cast<c10::DeviceIndex>(device_index_));
 
   torch::standalone::SlimTensor tensor =
-      torch::standalone::scalar_tensor_template<torch::standalone::SlimTensor>(
+      torch::standalone::_scalar_tensor<torch::standalone::SlimTensor>(
           s_scalar, dtype_val, device_val);
 
   *ret0 = reinterpret_cast<AtenTensorHandle>(
