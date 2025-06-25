@@ -214,9 +214,7 @@ class MaybeOwningStorage {
 using Storage = SharedPtr<MaybeOwningStorage>;
 
 // resize_bytes_cpu in ATen/native/Resize.cpp
-inline void resize_bytes_cpu(
-    MaybeOwningStorage* storage,
-    size_t new_size_bytes) {
+inline void resize_bytes(MaybeOwningStorage* storage, size_t new_size_bytes) {
   TORCH_CHECK(
       storage->is_resizable(),
       "Trying to resize storage that is not resizable");
@@ -225,7 +223,11 @@ inline void resize_bytes_cpu(
   const c10::Device& device = storage->device();
 
   if (new_size_bytes > 0) {
-    new_data = DeviceTraits<c10::DeviceType::CPU>::allocate(new_size_bytes);
+    if (device.is_cpu()) {
+      new_data = DeviceTraits<c10::DeviceType::CPU>::allocate(new_size_bytes);
+    } else if (device.is_cuda()) {
+      new_data = DeviceTraits<c10::DeviceType::CUDA>::allocate(new_size_bytes);
+    }
   }
 
   void* old_data = storage->data();
@@ -233,14 +235,22 @@ inline void resize_bytes_cpu(
   const size_t copy_capacity = std::min(new_size_bytes, old_capacity);
 
   if (old_data != nullptr && copy_capacity > 0) {
-    DeviceTraits<c10::DeviceType::CPU>::memcpy(
-        new_data, old_data, copy_capacity, device, device);
+    if (device.is_cpu()) {
+      DeviceTraits<c10::DeviceType::CPU>::memcpy(
+          new_data, old_data, copy_capacity, device, device);
+    } else if (device.is_cuda()) {
+      DeviceTraits<c10::DeviceType::CUDA>::memcpy(
+          new_data, old_data, copy_capacity, device, device);
+    }
   }
 
   if (old_data != nullptr) {
-    DeviceTraits<c10::DeviceType::CPU>::free(old_data);
+    if (device.is_cpu()) {
+      DeviceTraits<c10::DeviceType::CPU>::free(old_data);
+    } else if (device.is_cuda()) {
+      DeviceTraits<c10::DeviceType::CUDA>::free(old_data);
+    }
   }
-
   storage->set_data_ptr(new_data);
   storage->set_nbytes(new_size_bytes);
 }

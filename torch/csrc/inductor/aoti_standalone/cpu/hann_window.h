@@ -8,7 +8,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-namespace torch::standalone {
 
 inline AOTITorchError aoti_torch_cpu_hann_window(
     int64_t window_length,
@@ -18,13 +17,14 @@ inline AOTITorchError aoti_torch_cpu_hann_window(
     int32_t device_index_,
     int32_t* pin_memory,
     AtenTensorHandle* ret0) {
-  SlimTensor tensor = hann_window_template<SlimTensor>(
-      window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
+  torch::standalone::SlimTensor tensor =
+      torch::standalone::hann_window_template<torch::standalone::SlimTensor>(
+          window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
 
-  *ret0 = reinterpret_cast<AtenTensorHandle>(new SlimTensor(std::move(tensor)));
+  *ret0 = reinterpret_cast<AtenTensorHandle>(
+      new torch::standalone::SlimTensor(std::move(tensor)));
   return AOTI_TORCH_SUCCESS;
 }
-} // namespace torch::standalone
 
 #ifdef __cplusplus
 } // extern "C"
