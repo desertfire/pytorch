@@ -19,7 +19,10 @@ inline AOTITorchError aoti_torch_cpu_hann_window(
     AtenTensorHandle* ret0) {
   torch::standalone::SlimTensor tensor =
       torch::standalone::hann_window_template<torch::standalone::SlimTensor>(
-          window_length, ScalarType::Float, DeviceType::CPU, /*periodic=*/true);
+          window_length,
+          c10::ScalarType::Float,
+          c10::DeviceType::CPU,
+          /*periodic=*/true);
 
   *ret0 = reinterpret_cast<AtenTensorHandle>(
       new torch::standalone::SlimTensor(std::move(tensor)));
