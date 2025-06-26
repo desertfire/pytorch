@@ -13,6 +13,7 @@
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
+#include <torch/standalone/transpose_int_template.h>
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -313,77 +314,82 @@ class SlimTensor {
       default:
         TORCH_CHECK(false, "fill_: Unsupported dtype");
     }
-  }
 
- private:
-  void refresh_numel() {
-    numel_ =
-        torch::standalone::compute_numel(sizes_and_strides_.sizes_arrayref());
-  }
+    SlimTensor transpose(int64_t dim0, int64_t dim1) const {
+      return _transpose(*this, dim0, dim1);
+    }
 
-  bool compute_is_contiguous() const {
-    if (dim() <= 1) {
+   private:
+    void refresh_numel() {
+      numel_ =
+          torch::standalone::compute_numel(sizes_and_strides_.sizes_arrayref());
+    }
+
+    bool compute_is_contiguous() const {
+      if (dim() <= 1) {
+        return true;
+      }
+
+      int64_t expected_stride = 1;
+      for (int64_t i = static_cast<int64_t>(dim()) - 1; i >= 0; i--) {
+        if (size(i) == 0) {
+          return true;
+        }
+        if (size(i) != 1 && stride(i) != expected_stride) {
+          return false;
+        }
+        expected_stride *= size(i);
+      }
       return true;
     }
 
-    int64_t expected_stride = 1;
-    for (int64_t i = static_cast<int64_t>(dim()) - 1; i >= 0; i--) {
-      if (size(i) == 0) {
-        return true;
-      }
-      if (size(i) != 1 && stride(i) != expected_stride) {
-        return false;
-      }
-      expected_stride *= size(i);
+    void refresh_contiguous() {
+      // In SlimTensor, we only care about the single is_contiguous_ flag.
+      // (because TensorImpl (aten) implementation has other stuff)
+      is_contiguous_ = compute_is_contiguous();
     }
-    return true;
+
+    Storage storage_; // device_type_ and device_index_ are stored in storage_
+    int64_t storage_offset_;
+    c10::impl::SizesAndStrides sizes_and_strides_;
+    // If sizes and strides are empty, the numel is 1!!  However, most of the
+    // time, we will immediately set sizes to {0} and reset numel to 0.
+    // (Can't do that in the default initializers, because there's no way to
+    // spell "allocate a one-element array" for strides_).
+    size_t numel_ = 1;
+    c10::ScalarType dtype_;
+    bool is_contiguous_ = true;
+    // NOLINTNEXTLINE(clang-diagnostic-unused-private-field)
+    std::array<int8_t, 6> reserved_{}; // padding to align to 8 bytes
+  };
+
+  // The returned SlimTensor owns the underlying storage
+  inline SlimTensor create_empty_tensor(
+      c10::IntArrayRef sizes,
+      c10::IntArrayRef strides,
+      c10::ScalarType dtype,
+      const c10::Device& device = CPU_DEVICE,
+      int64_t storage_offset = 0,
+      bool own_sizes_and_strides = false) {
+    size_t nbytes = compute_nbytes(sizes, dtype);
+    Storage storage(new MaybeOwningStorage(nbytes, device));
+    return SlimTensor(
+        std::move(storage), sizes, strides, dtype, storage_offset);
   }
 
-  void refresh_contiguous() {
-    // In SlimTensor, we only care about the single is_contiguous_ flag.
-    // (because TensorImpl (aten) implementation has other stuff)
-    is_contiguous_ = compute_is_contiguous();
+  // The returned SlimTensor does not own the underlying storage
+  inline SlimTensor create_tensor_from_blob(
+      void* data,
+      c10::IntArrayRef sizes,
+      c10::IntArrayRef strides,
+      c10::ScalarType dtype,
+      const c10::Device& device = CPU_DEVICE,
+      int64_t storage_offset = 0) {
+    if (data == nullptr) {
+      throw std::runtime_error("data pointer can not be nullptr");
+    }
+    Storage storage(new MaybeOwningStorage(data, device));
+    return SlimTensor(
+        std::move(storage), sizes, strides, dtype, storage_offset);
   }
-
-  Storage storage_; // device_type_ and device_index_ are stored in storage_
-  int64_t storage_offset_;
-  c10::impl::SizesAndStrides sizes_and_strides_;
-  // If sizes and strides are empty, the numel is 1!!  However, most of the
-  // time, we will immediately set sizes to {0} and reset numel to 0.
-  // (Can't do that in the default initializers, because there's no way to
-  // spell "allocate a one-element array" for strides_).
-  size_t numel_ = 1;
-  c10::ScalarType dtype_;
-  bool is_contiguous_ = true;
-  // NOLINTNEXTLINE(clang-diagnostic-unused-private-field)
-  std::array<int8_t, 6> reserved_{}; // padding to align to 8 bytes
-};
-
-// The returned SlimTensor owns the underlying storage
-inline SlimTensor create_empty_tensor(
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides,
-    c10::ScalarType dtype,
-    const c10::Device& device = CPU_DEVICE,
-    int64_t storage_offset = 0,
-    bool own_sizes_and_strides = false) {
-  size_t nbytes = compute_nbytes(sizes, dtype);
-  Storage storage(new MaybeOwningStorage(nbytes, device));
-  return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
-}
-
-// The returned SlimTensor does not own the underlying storage
-inline SlimTensor create_tensor_from_blob(
-    void* data,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides,
-    c10::ScalarType dtype,
-    const c10::Device& device = CPU_DEVICE,
-    int64_t storage_offset = 0) {
-  if (data == nullptr) {
-    throw std::runtime_error("data pointer can not be nullptr");
-  }
-  Storage storage(new MaybeOwningStorage(data, device));
-  return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
-}
 } // namespace torch::standalone

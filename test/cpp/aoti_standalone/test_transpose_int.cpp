@@ -121,6 +121,58 @@ TEST(TransposeTest, TransposeOfTranspose) {
   delete t2_result;
 }
 
+// Test case for the transpose member function of SlimTensor
+TEST(TransposeTest, TransposeMemberFunction) {
+  // Create ground-truth aten tensor
+  at::Tensor at_tensor = at::arange(6, at::kFloat).reshape({2, 3});
+  ASSERT_TRUE(at_tensor.is_contiguous());
+
+  // Create a non-owning SlimTensor view of the ATen tensor
+  torch::standalone::SlimTensor slim_tensor_self =
+      torch::standalone::create_tensor_from_blob(
+          at_tensor.data_ptr(),
+          c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+          c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+          at::kFloat);
+
+  // Use the new member function
+  torch::standalone::SlimTensor slim_result = slim_tensor_self.transpose(0, 1);
+
+  // Perform the operation on the ATen tensor for ground truth
+  at::Tensor at_result = at::transpose(at_tensor, 0, 1);
+
+  EXPECT_EQ(slim_result.dim(), at_result.dim());
+  EXPECT_THAT(slim_result.sizes(), ElementsAreArray(at_result.sizes()));
+  EXPECT_THAT(slim_result.strides(), ElementsAreArray(at_result.strides()));
+  EXPECT_EQ(slim_result.numel(), at_result.numel());
+  // A transposed tensor is not contiguous
+  EXPECT_FALSE(slim_result.is_contiguous());
+
+  // Verify it's a view by checking that the data pointer is unchanged
+  EXPECT_EQ(slim_result.data_ptr(), at_tensor.data_ptr());
+}
+
+// Test case for chaining transpose member function calls
+TEST(TransposeTest, TransposeMemberFunctionChaining) {
+  at::Tensor at_tensor = at::arange(6, at::kFloat).reshape({2, 3});
+  torch::standalone::SlimTensor slim_tensor_self =
+      torch::standalone::create_tensor_from_blob(
+          at_tensor.data_ptr(),
+          c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+          c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+          at::kFloat);
+
+  // Chain two transpose operations using member function
+  torch::standalone::SlimTensor t1_result = slim_tensor_self.transpose(0, 1);
+  torch::standalone::SlimTensor t2_result = t1_result.transpose(0, 1);
+
+  // Verify it matches the original tensor after double transpose
+  EXPECT_THAT(t2_result.sizes(), ElementsAreArray(at_tensor.sizes()));
+  EXPECT_THAT(t2_result.strides(), ElementsAreArray(at_tensor.strides()));
+  EXPECT_TRUE(t2_result.is_contiguous());
+  EXPECT_EQ(t2_result.data_ptr(), at_tensor.data_ptr());
+}
+
 #if defined(USE_CUDA)
 TEST(TransposeTest, TransposeOpCuda) {
   // 1. Setup: Check if a CUDA device is actually available at runtime

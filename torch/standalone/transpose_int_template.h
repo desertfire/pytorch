@@ -1,6 +1,5 @@
 #pragma once
 
-#include <torch/csrc/inductor/aoti_standalone/c/shim.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <algorithm>
 #include <vector>
