@@ -4,10 +4,6 @@
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <torch/standalone/slim_tensor/utils.h>
 
-#ifdef USE_CUDA
-#include <cuda_runtime.h>
-#endif
-
 namespace torch::standalone {
 
 template <class T>
