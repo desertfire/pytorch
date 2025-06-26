@@ -3,14 +3,20 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
 #include <c10/core/MemoryFormat.h>
+#include <c10/core/Scalar.h>
 #include <c10/core/impl/SizesAndStrides.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
+
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 namespace torch::standalone {
 
@@ -248,6 +254,62 @@ class SlimTensor {
     SlimTensor result = *this;
     result.as_strided_(new_sizes, new_strides, this->storage_offset());
     return result;
+  }
+
+  void fill_(const c10::Scalar& value) {
+    if (this->numel() != 1) {
+      TORCH_CHECK(false, "fill_ is only for tensors with 1 element");
+    }
+
+    auto fill_value = [&](auto typed_value) {
+      using SType = decltype(typed_value);
+      if (this->device().is_cuda()) {
+#ifdef USE_CUDA
+        cudaError_t err = cudaMemcpy(
+            this->data_ptr(),
+            &typed_value,
+            sizeof(SType),
+            cudaMemcpyHostToDevice);
+        TORCH_CHECK(
+            err == cudaSuccess,
+            "CUDA memcpy failed: ",
+            cudaGetErrorString(err));
+#else
+        TORCH_CHECK(false, "CUDA support not available");
+#endif
+      } else if (this->device().is_cpu()) {
+        *static_cast<SType*>(this->data_ptr()) = typed_value;
+      }
+    };
+
+    switch (this->dtype()) {
+      case c10::ScalarType::Double:
+        fill_value(value.to<double>());
+        break;
+      case c10::ScalarType::Float:
+        fill_value(value.to<float>());
+        break;
+      case c10::ScalarType::Long:
+        fill_value(value.to<int64_t>());
+        break;
+      case c10::ScalarType::Int:
+        fill_value(value.to<int32_t>());
+        break;
+      case c10::ScalarType::Short:
+        fill_value(value.to<int16_t>());
+        break;
+      case c10::ScalarType::Char:
+        fill_value(value.to<int8_t>());
+        break;
+      case c10::ScalarType::Byte:
+        fill_value(value.to<uint8_t>());
+        break;
+      case c10::ScalarType::Bool:
+        fill_value(value.to<bool>());
+        break;
+      default:
+        TORCH_CHECK(false, "fill_: Unsupported dtype");
+    }
   }
 
  private:
