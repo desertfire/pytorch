@@ -17,7 +17,7 @@ inline T _transpose(const T& self, int64_t dim0, int64_t dim1) {
     return self;
   }
 
-  std::vector<int64_t> new_sizes(self.sizes().begin(), self.sizes().end());
+  std::vector<int64_t> new_sizes = self.sizes().vec();
   std::vector<int64_t> new_strides(
       self.strides().begin(), self.strides().end());
 
@@ -28,10 +28,7 @@ inline T _transpose(const T& self, int64_t dim0, int64_t dim1) {
   // Create a new tensor that is a view of the original
   // It shares the new storage but has the new sizes and strides
   T result = self;
-  result.as_strided_(
-      c10::IntArrayRef(new_sizes),
-      c10::IntArrayRef(new_strides),
-      self.storage_offset());
+  result.as_strided_(new_sizes, new_strides, self.storage_offset());
   return result;
 }
 
