@@ -5,12 +5,11 @@
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 
-namespace torch::standalone {
-
 using ::testing::ElementsAreArray;
 
 TEST(SlimTensorInternalTest, SetSizesContiguous) {
-  SlimTensor tensor = create_empty_tensor({}, {}, c10::kFloat);
+  torch::standalone::SlimTensor tensor =
+      torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
   EXPECT_EQ(tensor.numel(), 1);
 
   std::vector<int64_t> new_size_vec = {2, 3, 4};
@@ -26,7 +25,8 @@ TEST(SlimTensorInternalTest, SetSizesContiguous) {
 }
 
 TEST(SlimTensorInternalTest, SetSizesAndStridesNonContiguous) {
-  SlimTensor tensor = create_empty_tensor({}, {}, c10::kFloat);
+  torch::standalone::SlimTensor tensor =
+      torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
 
   // Set sizes and strides to represent a transposed tensor.
   // This is equivalent to a (2, 4) tensor that has been transposed to (4, 2).
@@ -50,7 +50,8 @@ TEST(SlimTensorInternalTest, SetSizesAndStridesNonContiguous) {
 }
 
 TEST(SlimTensorInternalTest, EmptyTensorRestride) {
-  SlimTensor tensor = create_empty_tensor({}, {}, c10::kFloat);
+  torch::standalone::SlimTensor tensor =
+      torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
   std::vector<int64_t> size_vec = {4, 2};
   std::vector<int64_t> stride_vec = {1, 4}; // Non-contiguous strides
   tensor.set_sizes_and_strides(
@@ -73,4 +74,67 @@ TEST(SlimTensorInternalTest, EmptyTensorRestride) {
   EXPECT_TRUE(tensor.is_contiguous());
 }
 
-} // namespace torch::standalone
+TEST(SlimTensorInternalTest, CopyFromContiguous) {
+  // Create a contiguous source tensor.
+  std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
+  torch::standalone::SlimTensor src_tensor =
+      torch::standalone::create_tensor_from_blob(
+          src_data.data(), {2, 4}, {4, 1}, c10::kFloat);
+  ASSERT_TRUE(src_tensor.is_contiguous());
+
+  // Create an empty, contiguous destination tensor.
+  std::vector<int64_t> dst_strides = {4, 1};
+  torch::standalone::SlimTensor dst_tensor =
+      torch::standalone::create_empty_tensor({2, 4}, dst_strides, c10::kFloat);
+  ASSERT_TRUE(dst_tensor.is_contiguous());
+
+  dst_tensor.copy_(src_tensor);
+
+  // When we verify the destination tensor's data should be an exact copy of the
+  // source.
+  float* dst_data_ptr = static_cast<float*>(dst_tensor.data_ptr());
+
+  // Compare the actual data in the destination tensor with the source data.
+  for (size_t i = 0; i < src_data.size(); ++i) {
+    EXPECT_EQ(dst_data_ptr[i], src_data[i]);
+  }
+}
+
+TEST(SlimTensorInternalTest, CopyFromNonContiguous) {
+  // Create a non-contiguous source tensor by setting transposed metadata.
+  // This simulates a (2, 4) tensor with data [0, 1, 2, 3, 4, 5, 6, 7]
+  // that has been transposed to (4, 2).
+  std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
+  torch::standalone::SlimTensor src_tensor =
+      torch::standalone::create_tensor_from_blob(
+          src_data.data(), {4, 2}, {1, 4}, c10::kFloat);
+  ASSERT_FALSE(src_tensor.is_contiguous());
+
+  // Create an empty, contiguous destination tensor of the same shape.
+  std::vector<int64_t> dst_strides = {2, 1};
+  torch::standalone::SlimTensor dst_tensor =
+      torch::standalone::create_empty_tensor({4, 2}, dst_strides, c10::kFloat);
+  ASSERT_TRUE(dst_tensor.is_contiguous());
+
+  // Perform the copy.
+  dst_tensor.copy_(src_tensor);
+
+  // When we verify the destination tensor should remain contiguous.
+  EXPECT_TRUE(dst_tensor.is_contiguous());
+
+  // The logical data of the transposed source tensor is:
+  // [[0, 4],
+  //  [1, 5],
+  //  [2, 6],
+  //  [3, 7]]
+  //
+  // When copied to a contiguous layout, the memory should be:
+  // [0, 4, 1, 5, 2, 6, 3, 7]
+  std::vector<float> expected_data = {0, 4, 1, 5, 2, 6, 3, 7};
+  float* dst_data_ptr = static_cast<float*>(dst_tensor.data_ptr());
+
+  // Compare the actual data in the destination tensor with the expected layout.
+  for (size_t i = 0; i < expected_data.size(); ++i) {
+    EXPECT_EQ(dst_data_ptr[i], expected_data[i]);
+  }
+}

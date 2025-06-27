@@ -208,7 +208,74 @@ class SlimTensor {
   }
 
   SlimTensor copy_(const SlimTensor& other) {
-    storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+    TORCH_CHECK(
+        this->numel() == other.numel(), "copy_: numel of tensors must match");
+    TORCH_CHECK(
+        this->is_contiguous(), "copy_: destination tensor must be contiguous");
+
+    if (other.is_contiguous()) {
+      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+      return *this;
+    }
+
+    // If source is not contiguous we must perform a element-wise copy
+    // that respects source's (other) strides.
+    void* src_untyped_ptr = (char*)other.data_ptr() +
+        other.storage_offset() * c10::elementSize(other.dtype());
+
+    switch (this->dtype()) {
+      case c10::ScalarType::Double:
+        elementwise_copy<double>(
+            static_cast<double*>(this->data_ptr()),
+            static_cast<const double*>(src_untyped_ptr),
+            this->numel(),
+            other.dim(),
+            other.sizes(),
+            other.strides());
+        break;
+      case c10::ScalarType::Float:
+        elementwise_copy<float>(
+            static_cast<float*>(this->data_ptr()),
+            static_cast<const float*>(src_untyped_ptr),
+            this->numel(),
+            other.dim(),
+            other.sizes(),
+            other.strides());
+        break;
+      case c10::ScalarType::Long:
+        elementwise_copy<int64_t>(
+            static_cast<int64_t*>(this->data_ptr()),
+            static_cast<const int64_t*>(src_untyped_ptr),
+            this->numel(),
+            other.dim(),
+            other.sizes(),
+            other.strides());
+        break;
+      case c10::ScalarType::Int:
+        elementwise_copy<int32_t>(
+            static_cast<int32_t*>(this->data_ptr()),
+            static_cast<const int32_t*>(src_untyped_ptr),
+            this->numel(),
+            other.dim(),
+            other.sizes(),
+            other.strides());
+        break;
+      case c10::ScalarType::Bool:
+        elementwise_copy<bool>(
+            static_cast<bool*>(this->data_ptr()),
+            static_cast<const bool*>(src_untyped_ptr),
+            this->numel(),
+            other.dim(),
+            other.sizes(),
+            other.strides());
+        break;
+      // TODO: ask should we add short, byte and char as well?
+      default:
+        TORCH_CHECK(
+            false,
+            "copy_: Unsupported data type for non-contiguous copy:",
+            this->dtype());
+    }
     return *this;
   }
 
