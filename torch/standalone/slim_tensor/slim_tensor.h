@@ -13,6 +13,7 @@
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
+#include <torch/standalone/transpose_int_template.h>
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -198,9 +199,11 @@ class SlimTensor {
       c10::IntArrayRef sizes,
       c10::IntArrayRef strides,
       int64_t storage_offset) {
-    sizes_and_strides_.set_sizes(sizes);
-    sizes_and_strides_.set_strides(strides);
+    set_sizes_and_strides(sizes, strides);
     storage_offset_ = storage_offset;
+
+    refresh_numel();
+    refresh_contiguous();
     return *this;
   }
 
@@ -310,6 +313,9 @@ class SlimTensor {
       default:
         TORCH_CHECK(false, "fill_: Unsupported dtype");
     }
+  }
+  SlimTensor transpose(int64_t dim0, int64_t dim1) const {
+    return _transpose(*this, dim0, dim1);
   }
 
  private:
