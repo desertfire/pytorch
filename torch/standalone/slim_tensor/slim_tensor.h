@@ -377,6 +377,13 @@ class SlimTensor {
     return _transpose(*this, dim0, dim1);
   }
 
+  SlimTensor& reshape_as_view(c10::IntArrayRef new_shape) {
+    this->set_sizes_contiguous(new_shape);
+    // after a clone, the new view is relative to the start of the storage.
+    this->storage_offset_ = 0;
+    return *this;
+  }
+
  private:
   void refresh_numel() {
     numel_ =
