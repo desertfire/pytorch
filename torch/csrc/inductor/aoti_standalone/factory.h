@@ -11,7 +11,6 @@ inline SlimTensor empty_tensor(
     c10::IntArrayRef strides,
     ScalarType dtype,
     Device device,
-
     int64_t storage_offset) {
   return create_empty_tensor(
       sizes,
