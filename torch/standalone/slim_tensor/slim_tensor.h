@@ -195,6 +195,9 @@ class SlimTensor {
     sizes_and_strides_.set_sizes(sizes);
     sizes_and_strides_.set_strides(strides);
     storage_offset_ = storage_offset;
+
+    refresh_numel();
+    refresh_contiguous();
     return *this;
   }
 
@@ -248,6 +251,13 @@ class SlimTensor {
     SlimTensor result = *this;
     result.as_strided_(new_sizes, new_strides, this->storage_offset());
     return result;
+  }
+
+  SlimTensor& reshape_as_view(c10::IntArrayRef new_shape) {
+    this->set_sizes_contiguous(new_shape);
+    // after a clone, the new view is relative to the start of the storage.
+    this->storage_offset_ = 0;
+    return *this;
   }
 
  private:
