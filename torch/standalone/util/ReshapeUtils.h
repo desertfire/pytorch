@@ -15,16 +15,16 @@ inline std::vector<int64_t> infer_size(c10::IntArrayRef shape, int64_t numel) {
   std::vector<int64_t> result_shape;
   result_shape.reserve(shape.size());
 
-  int64_t ndim = static_cast<int64_t>(shape.size());
+  size_t ndim = shape.size();
 
-  for (int64_t dim = 0; dim < ndim; dim++) {
+  for (size_t dim = 0; dim < ndim; dim++) {
     if (shape[dim] == -1) {
       TORCH_CHECK(!infer_dim.has_value(), "only one dimension can be inferred");
       infer_dim = dim;
       result_shape.push_back(-1); // placeholder
     } else {
       TORCH_CHECK(shape[dim] >= 0, "invalid shape dimension ", shape[dim]);
-      new_size *= shape[dim];
+      new_size *= shape[dim]; // todo: ask overflow possibility?
       result_shape.push_back(shape[dim]);
     }
   }
@@ -51,7 +51,7 @@ inline std::optional<std::vector<int64_t>> compute_stride(
     c10::IntArrayRef old_strides,
     c10::IntArrayRef new_sizes) {
   if (old_sizes.empty()) {
-    return std::vector<int64_t>(new_sizes.size(), -1);
+    return std::vector<int64_t>(new_sizes.size(), 1);
   }
 
   // NOTE: stride is arbitrary in the numel() == 0 case;
@@ -65,21 +65,21 @@ inline std::optional<std::vector<int64_t>> compute_stride(
     return old_strides.vec();
   }
 
+  int64_t new_sizes_len = static_cast<int64_t>(new_sizes.size());
   if (numel == 0) {
-    int64_t new_sizes_len = static_cast<int64_t>(new_sizes.size());
     std::vector<int64_t> new_strides(new_sizes_len);
-    for (int64_t i = new_sizes_len - 1; i >= 0; i--) {
-      if (i == new_sizes_len - 1) {
-        new_strides[i] = 1;
+    for (int64_t view_d = new_sizes_len - 1; view_d >= 0; view_d--) {
+      if (view_d == new_sizes_len - 1) {
+        new_strides[view_d] = 1;
       } else {
-        new_strides[i] =
-            std::max<int64_t>(new_sizes[i + 1], 1) * new_strides[i + 1];
+        new_strides[view_d] = std::max<int64_t>(new_sizes[view_d + 1], 1) *
+            new_strides[view_d + 1];
       }
     }
     return new_strides;
   }
 
-  std::vector<int64_t> new_strides(new_sizes.size());
+  std::vector<int64_t> new_strides(new_sizes_len);
   int64_t view_d = static_cast<int64_t>(new_sizes.size()) - 1;
   int64_t chunk_base_stride = old_strides.back();
   int64_t tensor_numel = 1;
@@ -88,6 +88,8 @@ inline std::optional<std::vector<int64_t>> compute_stride(
   for (int64_t tensor_d = static_cast<int64_t>(old_sizes.size()) - 1;
        tensor_d >= 0;
        tensor_d--) {
+    // TODO: ask if this could lead to overflow by any chance?
+    // even if so, overflow is not handled in the aten implementation
     tensor_numel *= old_sizes[tensor_d];
 
     bool is_chunk_end = (tensor_d == 0) ||

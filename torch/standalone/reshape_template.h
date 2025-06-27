@@ -27,7 +27,6 @@ inline T clone_contiguous(const T& self) {
 
 template <typename T>
 inline T _reshape(const T& self, c10::IntArrayRef proposed_shape) {
-  // TODO: implement infer_size
   std::vector<int64_t> final_shape_vec =
       infer_size(proposed_shape, self.numel());
   c10::IntArrayRef final_shape(final_shape_vec);
@@ -41,9 +40,7 @@ inline T _reshape(const T& self, c10::IntArrayRef proposed_shape) {
   if (new_strides_opt.has_value()) {
     T result = self; // creates a copy that shares the Storage
     result.as_strided_(
-        final_shape,
-        c10::IntArrayRef(new_strides_opt.value()),
-        self.storage_offset());
+        final_shape, new_strides_opt.value(), self.storage_offset());
     return result;
   }
 
