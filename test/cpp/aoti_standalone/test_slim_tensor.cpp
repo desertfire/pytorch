@@ -6,9 +6,10 @@
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 
 using ::testing::ElementsAreArray;
+using torch::standalone::SlimTensor;
 
 TEST(SlimTensorInternalTest, SetSizesContiguous) {
-  torch::standalone::SlimTensor tensor =
+  SlimTensor tensor =
       torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
   EXPECT_EQ(tensor.numel(), 1);
 
@@ -25,7 +26,7 @@ TEST(SlimTensorInternalTest, SetSizesContiguous) {
 }
 
 TEST(SlimTensorInternalTest, SetSizesAndStridesNonContiguous) {
-  torch::standalone::SlimTensor tensor =
+  SlimTensor tensor =
       torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
 
   // Set sizes and strides to represent a transposed tensor.
@@ -50,7 +51,7 @@ TEST(SlimTensorInternalTest, SetSizesAndStridesNonContiguous) {
 }
 
 TEST(SlimTensorInternalTest, EmptyTensorRestride) {
-  torch::standalone::SlimTensor tensor =
+  SlimTensor tensor =
       torch::standalone::create_empty_tensor({}, {}, c10::kFloat);
   std::vector<int64_t> size_vec = {4, 2};
   std::vector<int64_t> stride_vec = {1, 4}; // Non-contiguous strides
@@ -77,14 +78,14 @@ TEST(SlimTensorInternalTest, EmptyTensorRestride) {
 TEST(SlimTensorInternalTest, CopyFromContiguous) {
   // Create a contiguous source tensor.
   std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
-  torch::standalone::SlimTensor src_tensor =
+  SlimTensor src_tensor =
       torch::standalone::create_tensor_from_blob(
           src_data.data(), {2, 4}, {4, 1}, c10::kFloat);
   ASSERT_TRUE(src_tensor.is_contiguous());
 
   // Create an empty, contiguous destination tensor.
   std::vector<int64_t> dst_strides = {4, 1};
-  torch::standalone::SlimTensor dst_tensor =
+  SlimTensor dst_tensor =
       torch::standalone::create_empty_tensor({2, 4}, dst_strides, c10::kFloat);
   ASSERT_TRUE(dst_tensor.is_contiguous());
 
@@ -105,14 +106,14 @@ TEST(SlimTensorInternalTest, CopyFromNonContiguous) {
   // This simulates a (2, 4) tensor with data [0, 1, 2, 3, 4, 5, 6, 7]
   // that has been transposed to (4, 2).
   std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
-  torch::standalone::SlimTensor src_tensor =
+  SlimTensor src_tensor =
       torch::standalone::create_tensor_from_blob(
           src_data.data(), {4, 2}, {1, 4}, c10::kFloat);
   ASSERT_FALSE(src_tensor.is_contiguous());
 
   // Create an empty, contiguous destination tensor of the same shape.
   std::vector<int64_t> dst_strides = {2, 1};
-  torch::standalone::SlimTensor dst_tensor =
+  SlimTensor dst_tensor =
       torch::standalone::create_empty_tensor({4, 2}, dst_strides, c10::kFloat);
   ASSERT_TRUE(dst_tensor.is_contiguous());
 
