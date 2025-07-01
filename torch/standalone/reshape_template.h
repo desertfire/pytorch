@@ -1,29 +1,11 @@
 #pragma once
 
-#include <torch/csrc/inductor/aoti_standalone/factory.h>
-#include <torch/standalone/slim_tensor/utils.h>
 #include <torch/standalone/util/ReshapeUtils.h>
 
 #include <c10/util/Optional.h>
 #include <optional>
 #include <vector>
 namespace torch::standalone {
-
-template <typename T>
-inline T clone_contiguous(const T& self) {
-  std::vector<int64_t> contig_strides =
-      compute_contiguous_strides(self.sizes());
-
-  T result = empty_tensor<T>(
-      self.sizes(),
-      c10::IntArrayRef(contig_strides),
-      self.dtype(),
-      self.device(),
-      0);
-  // copy the data from (potentially non-contiguous) the self tensor
-  result.copy_(self);
-  return result;
-}
 
 template <typename T>
 inline T _reshape(const T& self, c10::IntArrayRef proposed_shape) {
@@ -45,7 +27,7 @@ inline T _reshape(const T& self, c10::IntArrayRef proposed_shape) {
   }
 
   // if a view is not possible, create a contiguous clone and reshape that
-  T contiguous_clone = clone_contiguous(self);
+  T contiguous_clone = self.clone_contiguous();
 
   // after cloning, the tensor is already contiguous. We just need to update
   // its metadata to reflect the new shape. This is effectively a view of

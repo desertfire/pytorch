@@ -11,6 +11,7 @@
 #include <c10/core/Scalar.h>
 #include <c10/core/impl/SizesAndStrides.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
+#include <torch/standalone/reshape_template.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
 #include <torch/standalone/transpose_int_template.h>
@@ -384,6 +385,12 @@ class SlimTensor {
     return *this;
   }
 
+  SlimTensor reshape(c10::IntArrayRef proposed_shape) const {
+    return _reshape(*this, proposed_shape);
+  }
+
+  SlimTensor clone_contiguous() const;
+
  private:
   void refresh_numel() {
     numel_ =
@@ -455,4 +462,20 @@ inline SlimTensor create_tensor_from_blob(
   Storage storage(new MaybeOwningStorage(data, device));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
+
+inline SlimTensor SlimTensor::clone_contiguous() const {
+  std::vector<int64_t> contig_strides =
+      torch::standalone::compute_contiguous_strides(this->sizes());
+
+  SlimTensor result = create_empty_tensor(
+      this->sizes(),
+      c10::IntArrayRef(contig_strides),
+      this->dtype(),
+      this->device(),
+      0);
+  // copy the data from (potentially non-contiguous) the self tensor
+  result.copy_(*this);
+  return result;
+}
+
 } // namespace torch::standalone

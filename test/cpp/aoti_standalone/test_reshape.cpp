@@ -129,6 +129,29 @@ TEST(ReshapeTest, ReshapeWithInferredDimension) {
   delete slim_result;
 }
 
+// Test Case 4: Tests if tensor.reshape() works or not.
+TEST(ReshapeTest, ReshapeMemberFunction) {
+  // 1. Setup
+  at::Tensor at_tensor = at::arange(12, at::kFloat).reshape({3, 4});
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor.data_ptr(),
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at::kFloat);
+
+  std::vector<int64_t> new_shape_vec = {2, 6};
+  SlimTensor slim_result = slim_tensor_self.reshape(new_shape_vec);
+
+  at::Tensor at_result =
+      at::reshape(at_tensor, c10::IntArrayRef(new_shape_vec));
+
+  // 3. Verify: The inferred shape should be {2, 2, 3}
+  EXPECT_THAT(slim_result.sizes(), ElementsAreArray(at_result.sizes()));
+  EXPECT_THAT(slim_result.strides(), ElementsAreArray(at_result.strides()));
+  EXPECT_EQ(
+      slim_result.data_ptr(), at_tensor.data_ptr()); // Should still be a view
+}
+
 #if defined(USE_CUDA)
 TEST(ReshapeTest, ReshapeAsViewCUDA) {
   if (!torch::cuda::is_available())
