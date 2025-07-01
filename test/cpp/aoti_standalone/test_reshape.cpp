@@ -14,12 +14,11 @@ using torch::standalone::SlimTensor;
 TEST(ReshapeTest, ReshapeAsView) {
   // 1. Setup
   at::Tensor at_tensor = at::arange(12, at::kFloat).reshape({3, 4});
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor.data_ptr(),
-          c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
-          c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
-          at::kFloat);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor.data_ptr(),
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at::kFloat);
   ASSERT_TRUE(slim_tensor_self.is_contiguous());
 
   // 2. Action
@@ -31,8 +30,7 @@ TEST(ReshapeTest, ReshapeAsView) {
       new_shape_vec.size(),
       &result_handle);
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   // For comparison, get the ground-truth result from ATen
   at::Tensor at_result =
@@ -58,15 +56,13 @@ TEST(ReshapeTest, ReshapeWithCopy) {
   at::Tensor at_tensor_transposed = at::transpose(at_tensor_original, 0, 1);
   ASSERT_FALSE(at_tensor_transposed.is_contiguous());
 
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor_transposed.data_ptr(),
-          c10::IntArrayRef(
-              at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
-          c10::IntArrayRef(
-              at_tensor_transposed.strides().data(),
-              at_tensor_transposed.dim()),
-          at::kFloat);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor_transposed.data_ptr(),
+      c10::IntArrayRef(
+          at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
+      c10::IntArrayRef(
+          at_tensor_transposed.strides().data(), at_tensor_transposed.dim()),
+      at::kFloat);
 
   // 2. Action: Reshape the non-contiguous tensor. This cannot be a view.
   std::vector<int64_t> new_shape_vec = {2, 6};
@@ -79,8 +75,7 @@ TEST(ReshapeTest, ReshapeWithCopy) {
       &result_handle);
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   at::Tensor at_result =
       at::reshape(at_tensor_transposed, c10::IntArrayRef(new_shape_vec));
@@ -109,12 +104,11 @@ TEST(ReshapeTest, ReshapeWithCopy) {
 TEST(ReshapeTest, ReshapeWithInferredDimension) {
   // 1. Setup
   at::Tensor at_tensor = at::arange(12, at::kFloat).reshape({3, 4});
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor.data_ptr(),
-          c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
-          c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
-          at::kFloat);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor.data_ptr(),
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at::kFloat);
 
   // 2. Action: Propose a shape with -1
   std::vector<int64_t> new_shape_vec = {2, -1, 3};
@@ -125,8 +119,7 @@ TEST(ReshapeTest, ReshapeWithInferredDimension) {
       new_shape_vec.size(),
       &result_handle);
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   // 3. Verify: The inferred shape should be {2, 2, 3}
   EXPECT_THAT(slim_result->sizes(), ElementsAreArray({2, 2, 3}));
@@ -144,13 +137,12 @@ TEST(ReshapeTest, ReshapeAsViewCUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(cuda_device);
 
   at::Tensor at_tensor = at::arange(12, options).reshape({3, 4});
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor.data_ptr(),
-          c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
-          c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
-          at::kFloat,
-          cuda_device);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor.data_ptr(),
+      c10::IntArrayRef(at_tensor.sizes().data(), at_tensor.dim()),
+      c10::IntArrayRef(at_tensor.strides().data(), at_tensor.dim()),
+      at::kFloat,
+      cuda_device);
 
   std::vector<int64_t> new_shape_vec = {2, 6};
   AtenTensorHandle result_handle = nullptr;
@@ -161,8 +153,7 @@ TEST(ReshapeTest, ReshapeAsViewCUDA) {
       &result_handle);
 
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   ASSERT_NE(slim_result, nullptr);
   EXPECT_TRUE(slim_result->device().is_cuda());
@@ -180,16 +171,14 @@ TEST(ReshapeTest, ReshapeWithCopyCUDA) {
   at::Tensor at_tensor_original = at::arange(12, options).reshape({3, 4});
   at::Tensor at_tensor_transposed = at::transpose(at_tensor_original, 0, 1);
 
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor_transposed.data_ptr(),
-          c10::IntArrayRef(
-              at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
-          c10::IntArrayRef(
-              at_tensor_transposed.strides().data(),
-              at_tensor_transposed.dim()),
-          at::kFloat,
-          cuda_device);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor_transposed.data_ptr(),
+      c10::IntArrayRef(
+          at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
+      c10::IntArrayRef(
+          at_tensor_transposed.strides().data(), at_tensor_transposed.dim()),
+      at::kFloat,
+      cuda_device);
 
   std::vector<int64_t> new_shape_vec = {2, 6};
   AtenTensorHandle result_handle = nullptr;
@@ -199,8 +188,7 @@ TEST(ReshapeTest, ReshapeWithCopyCUDA) {
       new_shape_vec.size(),
       &result_handle);
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   ASSERT_NE(slim_result, nullptr);
   EXPECT_TRUE(slim_result->device().is_cuda());
@@ -231,16 +219,14 @@ TEST(ReshapeTest, ReshapeWithCopyCUDAInt64) {
   at::Tensor at_tensor_original = at::arange(12, options).reshape({3, 4});
   at::Tensor at_tensor_transposed = at::transpose(at_tensor_original, 0, 1);
 
-  SlimTensor slim_tensor_self =
-      torch::standalone::create_tensor_from_blob(
-          at_tensor_transposed.data_ptr(),
-          c10::IntArrayRef(
-              at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
-          c10::IntArrayRef(
-              at_tensor_transposed.strides().data(),
-              at_tensor_transposed.dim()),
-          at::kLong,
-          cuda_device);
+  SlimTensor slim_tensor_self = torch::standalone::create_tensor_from_blob(
+      at_tensor_transposed.data_ptr(),
+      c10::IntArrayRef(
+          at_tensor_transposed.sizes().data(), at_tensor_transposed.dim()),
+      c10::IntArrayRef(
+          at_tensor_transposed.strides().data(), at_tensor_transposed.dim()),
+      at::kLong,
+      cuda_device);
 
   std::vector<int64_t> new_shape_vec = {2, 6};
   AtenTensorHandle result_handle = nullptr;
@@ -250,8 +236,7 @@ TEST(ReshapeTest, ReshapeWithCopyCUDAInt64) {
       new_shape_vec.size(),
       &result_handle);
   ASSERT_EQ(err, AOTI_TORCH_SUCCESS);
-  SlimTensor* slim_result =
-      reinterpret_cast<SlimTensor*>(result_handle);
+  SlimTensor* slim_result = reinterpret_cast<SlimTensor*>(result_handle);
 
   ASSERT_NE(slim_result, nullptr);
   EXPECT_TRUE(slim_result->device().is_cuda());
