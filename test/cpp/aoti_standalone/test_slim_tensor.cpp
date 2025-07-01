@@ -78,9 +78,8 @@ TEST(SlimTensorInternalTest, EmptyTensorRestride) {
 TEST(SlimTensorInternalTest, CopyFromContiguous) {
   // Create a contiguous source tensor.
   std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
-  SlimTensor src_tensor =
-      torch::standalone::create_tensor_from_blob(
-          src_data.data(), {2, 4}, {4, 1}, c10::kFloat);
+  SlimTensor src_tensor = torch::standalone::create_tensor_from_blob(
+      src_data.data(), {2, 4}, {4, 1}, c10::kFloat);
   ASSERT_TRUE(src_tensor.is_contiguous());
 
   // Create an empty, contiguous destination tensor.
@@ -106,9 +105,8 @@ TEST(SlimTensorInternalTest, CopyFromNonContiguous) {
   // This simulates a (2, 4) tensor with data [0, 1, 2, 3, 4, 5, 6, 7]
   // that has been transposed to (4, 2).
   std::vector<float> src_data = {0, 1, 2, 3, 4, 5, 6, 7};
-  SlimTensor src_tensor =
-      torch::standalone::create_tensor_from_blob(
-          src_data.data(), {4, 2}, {1, 4}, c10::kFloat);
+  SlimTensor src_tensor = torch::standalone::create_tensor_from_blob(
+      src_data.data(), {4, 2}, {1, 4}, c10::kFloat);
   ASSERT_FALSE(src_tensor.is_contiguous());
 
   // Create an empty, contiguous destination tensor of the same shape.
