@@ -149,40 +149,4 @@ inline int64_t compute_storage_nbytes(
 #endif
 }
 
-template <typename scalar_t>
-void elementwise_copy(
-    scalar_t* dst_data,
-    const scalar_t* src_data,
-    size_t numel,
-    size_t ndim,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef src_strides) {
-  if (numel == 0) {
-    return;
-  }
-
-  std::vector<int64_t> counter(ndim, 0);
-  for (size_t i = 0; i < numel; i++) {
-    int64_t src_offset = 0;
-    for (size_t d = 0; d < ndim; d++) {
-      src_offset += counter[d] * src_strides[d];
-    }
-
-    // the destination is contiguous so its offset is simply the element index
-    // 'i'.
-    dst_data[i] = src_data[src_offset];
-
-    // increment the multi-dimensional counter to find the next logical element
-    int64_t current_dim = static_cast<int64_t>(ndim) - 1;
-    while (current_dim >= 0) {
-      counter[current_dim]++;
-      if (counter[current_dim] < sizes[current_dim]) {
-        break;
-      }
-      counter[current_dim] = 0;
-      current_dim--;
-    }
-  }
-}
-
 } // namespace torch::standalone

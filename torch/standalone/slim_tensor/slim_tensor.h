@@ -213,68 +213,60 @@ class SlimTensor {
     TORCH_CHECK(
         this->is_contiguous(), "copy_: destination tensor must be contiguous");
 
+    // Case 1: The source tensor is also contiguous. We can do a fast bulk copy.
+    // This works for both CPU and CUDA because storage_->clone() is
+    // device-aware.
     if (other.is_contiguous()) {
       storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
       return *this;
     }
 
-    // If source is not contiguous we must perform a element-wise copy
+    // Case 2: source is not contiguous we must perform a element-wise copy
     // that respects source's (other) strides.
-    void* src_untyped_ptr = (char*)other.data_ptr() +
-        other.storage_offset() * c10::elementSize(other.dtype());
+    const size_t elem_size = c10::elementSize(dtype_);
+    char* dst_data = static_cast<char*>(this->data_ptr());
+    const char* src_data = static_cast<const char*>(other.data_ptr()) +
+        other.storage_offset() * elem_size;
 
-    switch (this->dtype()) {
-      case c10::ScalarType::Double:
-        elementwise_copy<double>(
-            static_cast<double*>(this->data_ptr()),
-            static_cast<const double*>(src_untyped_ptr),
-            this->numel(),
-            other.dim(),
-            other.sizes(),
-            other.strides());
-        break;
-      case c10::ScalarType::Float:
-        elementwise_copy<float>(
-            static_cast<float*>(this->data_ptr()),
-            static_cast<const float*>(src_untyped_ptr),
-            this->numel(),
-            other.dim(),
-            other.sizes(),
-            other.strides());
-        break;
-      case c10::ScalarType::Long:
-        elementwise_copy<int64_t>(
-            static_cast<int64_t*>(this->data_ptr()),
-            static_cast<const int64_t*>(src_untyped_ptr),
-            this->numel(),
-            other.dim(),
-            other.sizes(),
-            other.strides());
-        break;
-      case c10::ScalarType::Int:
-        elementwise_copy<int32_t>(
-            static_cast<int32_t*>(this->data_ptr()),
-            static_cast<const int32_t*>(src_untyped_ptr),
-            this->numel(),
-            other.dim(),
-            other.sizes(),
-            other.strides());
-        break;
-      case c10::ScalarType::Bool:
-        elementwise_copy<bool>(
-            static_cast<bool*>(this->data_ptr()),
-            static_cast<const bool*>(src_untyped_ptr),
-            this->numel(),
-            other.dim(),
-            other.sizes(),
-            other.strides());
-        break;
-      // TODO: ask should we add short, byte and char as well?
-      default:
-        TORCH_CHECK(
-            false,
-            "copy_: Unsupported data type for non-contiguous copy:",
-            this->dtype());
+    if (this->numel() == 0) {
+      return *this;
+    }
+
+    std::vector<int64_t> counter(other.dim(), 0);
+    for (size_t i = 0; i < this->numel(); i++) {
+      // Compute src offset in elements
+      int64_t src_offset = 0;
+      for (size_t d = 0; d < other.dim(); d++) {
+        src_offset += counter[d] * other.stride(d);
+      }
+
+      // Copy elem_size bytes from src to dst
+      if (this->device().is_cpu() && other.device().is_cpu()) {
+        std::memcpy(
+            dst_data + i * elem_size,
+            src_data + src_offset * elem_size,
+            elem_size);
+      } else if (this->device().is_cuda() || other.device().is_cuda()) {
+#if defined(USE_CUDA)
+        DeviceTraits<c10::DeviceType::CUDA>::memcpy(
+            dst_data + i * elem_size,
+            src_data + src_offset * elem_size,
+            elem_size,
+            device(), // dst device
+            other.device() // src device
+        );
+#else
+        TORCH_CHECK(false, "copy_: no CUDA support");
+#endif
+      }
+      // Increment the multi-dimensional counter
+      for (int64_t d = static_cast<int64_t>(other.dim()) - 1; d >= 0; --d) {
+        counter[d]++;
+        if (counter[d] < other.size(d)) {
+          break;
+        }
+        counter[d] = 0;
+      }
     }
     return *this;
   }
