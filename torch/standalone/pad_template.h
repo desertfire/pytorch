@@ -26,10 +26,11 @@ inline T constant_pad_nd(
   bool all_pads_non_positive = true;
   T c_input = self;
   for (int64_t i = l_diff; i < l_inp; i++) {
-    int64_t pad_idx = 2 * (l_inp -i - 1);
+    int64_t pad_idx = 2 * (l_inp - i - 1);
 
     if (pad[pad_idx] < 0) {
-      c_input = c_input.narrow(i, -pad[pad_idx], c_input.size(i) + pad[pad_idx]);
+      c_input =
+          c_input.narrow(i, -pad[pad_idx], c_input.size(i) + pad[pad_idx]);
     } else if (pad[pad_idx] != 0) {
       all_pads_non_positive = false;
     }
