@@ -4,6 +4,8 @@
 #include <c10/core/MemoryFormat.h>
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
+#include <torch/torch.h>
+
 
 using ::testing::ElementsAreArray;
 using torch::standalone::SlimTensor;
@@ -137,3 +139,65 @@ TEST(SlimTensorInternalTest, CopyFromNonContiguous) {
     EXPECT_EQ(dst_data_ptr[i], expected_data[i]);
   }
 }
+
+#if defined(USE_CUDA)
+TEST(SlimTensorInternalTest, CopyFromNonContiguousCuda) {
+  // Check if CUDA is available at runtime
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA not available, skipping test";
+  }
+
+  at::Device cuda_device(at::kCUDA);
+
+  // Create source data on CPU first
+  std::vector<float> src_data_cpu = {0, 1, 2, 3, 4, 5, 6, 7};
+
+  // Create a CUDA tensor and copy data to it
+  at::Tensor at_src_tensor = at::from_blob(
+      src_data_cpu.data(), {2, 4}, at::TensorOptions().dtype(at::kFloat))
+      .to(cuda_device);
+
+  // Create a non-contiguous source tensor by setting transposed metadata.
+  // This simulates a (2, 4) tensor with data [0, 1, 2, 3, 4, 5, 6, 7]
+  // that has been transposed to (4, 2).
+  SlimTensor src_tensor = torch::standalone::create_tensor_from_blob(
+      at_src_tensor.data_ptr(), {4, 2}, {1, 4}, c10::kFloat, cuda_device);
+  ASSERT_FALSE(src_tensor.is_contiguous());
+  ASSERT_TRUE(src_tensor.device().is_cuda());
+
+  // Create an empty, contiguous destination tensor of the same shape on CUDA.
+  std::vector<int64_t> dst_strides = {2, 1};
+  SlimTensor dst_tensor = torch::standalone::create_empty_tensor(
+      {4, 2}, dst_strides, c10::kFloat, cuda_device);
+  ASSERT_TRUE(dst_tensor.is_contiguous());
+  ASSERT_TRUE(dst_tensor.device().is_cuda());
+
+  // Perform the copy.
+  dst_tensor.copy_(src_tensor);
+
+  // Verify the destination tensor should remain contiguous.
+  EXPECT_TRUE(dst_tensor.is_contiguous());
+
+  // Copy result back to CPU for verification
+  at::Tensor dst_cpu_tensor = at::from_blob(
+      dst_tensor.data_ptr(), {4, 2},
+      at::TensorOptions().dtype(at::kFloat).device(cuda_device))
+      .to(at::kCPU);
+
+  // The logical data of the transposed source tensor is:
+  // [[0, 4],
+  //  [1, 5],
+  //  [2, 6],
+  //  [3, 7]]
+  //
+  // When copied to a contiguous layout, the memory should be:
+  // [0, 4, 1, 5, 2, 6, 3, 7]
+  std::vector<float> expected_data = {0, 4, 1, 5, 2, 6, 3, 7};
+  float* dst_data_ptr = static_cast<float*>(dst_cpu_tensor.data_ptr());
+
+  // Compare the actual data in the destination tensor with the expected layout.
+  for (size_t i = 0; i < expected_data.size(); ++i) {
+    EXPECT_EQ(dst_data_ptr[i], expected_data[i]);
+  }
+}
+#endif // USE_CUDA
