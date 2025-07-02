@@ -208,7 +208,66 @@ class SlimTensor {
   }
 
   SlimTensor copy_(const SlimTensor& other) {
-    storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+    TORCH_CHECK(
+        this->numel() == other.numel(), "copy_: numel of tensors must match");
+    TORCH_CHECK(
+        this->is_contiguous(), "copy_: destination tensor must be contiguous");
+
+    // Case 1: The source tensor is also contiguous. We can do a fast bulk copy.
+    // This works for both CPU and CUDA because storage_->clone() is
+    // device-aware.
+    if (other.is_contiguous()) {
+      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+      return *this;
+    }
+
+    // Case 2: source is not contiguous we must perform a element-wise copy
+    // that respects source's (other) strides.
+    const size_t elem_size = c10::elementSize(dtype_);
+    char* dst_data = static_cast<char*>(this->data_ptr());
+    const char* src_data = static_cast<const char*>(other.data_ptr()) +
+        other.storage_offset() * elem_size;
+
+    if (this->numel() == 0) {
+      return *this;
+    }
+
+    std::vector<int64_t> counter(other.dim(), 0);
+    for (size_t i = 0; i < this->numel(); i++) {
+      // Compute src offset in elements
+      int64_t src_offset = 0;
+      for (size_t d = 0; d < other.dim(); d++) {
+        src_offset += counter[d] * other.stride(d);
+      }
+
+      // Copy elem_size bytes from src to dst
+      if (this->device().is_cpu() && other.device().is_cpu()) {
+        std::memcpy(
+            dst_data + i * elem_size,
+            src_data + src_offset * elem_size,
+            elem_size);
+      } else if (this->device().is_cuda() || other.device().is_cuda()) {
+#if defined(USE_CUDA)
+        DeviceTraits<c10::DeviceType::CUDA>::memcpy(
+            dst_data + i * elem_size,
+            src_data + src_offset * elem_size,
+            elem_size,
+            device(), // dst device
+            other.device() // src device
+        );
+#else
+        TORCH_CHECK(false, "copy_: no CUDA support");
+#endif
+      }
+      // Increment the multi-dimensional counter
+      for (int64_t d = static_cast<int64_t>(other.dim()) - 1; d >= 0; --d) {
+        counter[d]++;
+        if (counter[d] < other.size(d)) {
+          break;
+        }
+        counter[d] = 0;
+      }
+    }
     return *this;
   }
 
