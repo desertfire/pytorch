@@ -218,7 +218,8 @@ class SlimTensor {
 
     // Case 1: Both tensors are contiguous. We can do a fast bulk copy.
     if (this->is_contiguous() && other.is_contiguous()) {
-      size_t src_byte_offset = other.storage_offset() * c10::elementSize(this->dtype_);
+      int64_t src_byte_offset = other.storage_offset() *
+          static_cast<int64_t>(c10::elementSize(this->dtype_));
       storage_->clone(other.storage(), other.nbytes(), src_byte_offset);
       return *this;
     }

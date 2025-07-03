@@ -57,27 +57,6 @@ void run_and_verify_pad(
       slim_result_cpu.strides(),
       slim_result_cpu.dtype());
 
-  // Debug output for negative padding test
-  if (pad_vec.size() == 4 && pad_vec[0] == -1 && pad_vec[1] == -1 &&
-      pad_vec[2] == -1 && pad_vec[3] == -1) {
-    std::cout << "=== DEBUG: NegativePadding Test ===" << std::endl;
-    std::cout << "Input tensor shape: ";
-    for (auto s : at_input.sizes())
-      std::cout << s << " ";
-    std::cout << std::endl;
-    std::cout << "Expected result shape: ";
-    for (auto s : at_result_cpu.sizes())
-      std::cout << s << " ";
-    std::cout << std::endl;
-    std::cout << "Actual result shape: ";
-    for (auto s : slim_result_cpu.sizes())
-      std::cout << s << " ";
-    std::cout << std::endl;
-    std::cout << "Expected result:\n" << at_result_cpu << std::endl;
-    std::cout << "Actual result:\n" << slim_result_aten_view << std::endl;
-    std::cout << "===================================" << std::endl;
-  }
-
   ASSERT_TRUE(at::equal(slim_result_aten_view, at_result_cpu));
 
   delete slim_result;
