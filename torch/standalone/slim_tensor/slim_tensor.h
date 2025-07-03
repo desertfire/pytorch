@@ -218,7 +218,9 @@ class SlimTensor {
 
     // Case 1: Both tensors are contiguous. We can do a fast bulk copy.
     if (this->is_contiguous() && other.is_contiguous()) {
-      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+      int64_t src_byte_offset = other.storage_offset() *
+          static_cast<int64_t>(c10::elementSize(this->dtype_));
+      storage_->clone(other.storage(), other.nbytes(), src_byte_offset);
       return *this;
     }
 
@@ -323,28 +325,44 @@ class SlimTensor {
   }
 
   void fill_(const c10::Scalar& value) {
-    if (this->numel() != 1) {
-      TORCH_CHECK(false, "fill_ is only for tensors with 1 element");
-    }
-
     auto fill_value = [&](auto typed_value) {
       using SType = decltype(typed_value);
       if (this->device().is_cuda()) {
 #ifdef USE_CUDA
-        cudaError_t err = cudaMemcpy(
-            this->data_ptr(),
-            &typed_value,
-            sizeof(SType),
-            cudaMemcpyHostToDevice);
-        TORCH_CHECK(
-            err == cudaSuccess,
-            "CUDA memcpy failed: ",
-            cudaGetErrorString(err));
+        if constexpr (std::is_same_v<SType, bool>) {
+          // Special handling for bool since std::vector<bool> doesn't have
+          // data()
+          std::vector<uint8_t> host_data(this->numel(), typed_value ? 1 : 0);
+          cudaError_t err = cudaMemcpy(
+              this->data_ptr(),
+              host_data.data(),
+              this->nbytes(),
+              cudaMemcpyHostToDevice);
+          TORCH_CHECK(
+              err == cudaSuccess,
+              "CUDA memcpy failed: ",
+              cudaGetErrorString(err));
+        } else {
+          std::vector<SType> host_data(this->numel(), typed_value);
+          cudaError_t err = cudaMemcpy(
+              this->data_ptr(),
+              host_data.data(),
+              this->nbytes(),
+              cudaMemcpyHostToDevice);
+          TORCH_CHECK(
+              err == cudaSuccess,
+              "CUDA memcpy failed: ",
+              cudaGetErrorString(err));
+        }
 #else
         TORCH_CHECK(false, "CUDA support not available");
 #endif
       } else if (this->device().is_cpu()) {
-        *static_cast<SType*>(this->data_ptr()) = typed_value;
+        // Fill all elements, not just the first one
+        SType* data = static_cast<SType*>(this->data_ptr());
+        for (size_t i = 0; i < this->numel(); ++i) {
+          data[i] = typed_value;
+        }
       }
     };
 
@@ -379,6 +397,38 @@ class SlimTensor {
   }
   SlimTensor transpose(int64_t dim0, int64_t dim1) const {
     return _transpose(*this, dim0, dim1);
+  }
+
+  // returns a new tensor that is a narrowed version of this and storage is
+  // shared
+  SlimTensor narrow(int64_t dim, int64_t start, int64_t length) const {
+    TORCH_CHECK(
+        this->dim() > 0, "narrow() cannot be applied to a 0-dim tensor.");
+
+    dim = torch::standalone::maybe_wrap_dim(
+        dim, static_cast<int64_t>(this->dim()));
+    int64_t end = start + length;
+
+    TORCH_CHECK(length >= 0, "narrow(): length must be non-negative.");
+    TORCH_CHECK(
+        dim >= 0 && dim < static_cast<int64_t>(this->dim()),
+        "Dimension out of range");
+    TORCH_CHECK(
+        start >= 0 && end <= this->size(dim),
+        "Invalid range to narrow. range(start, start+length) must be a subset of range(0, )",
+        this->size(dim),
+        ").");
+
+    SlimTensor result = *this;
+
+    int64_t new_storage_offset =
+        this->storage_offset() + start * this->stride(dim);
+
+    std::vector<int64_t> new_sizes = this->sizes().vec();
+    new_sizes[dim] = length;
+
+    result.as_strided_(new_sizes, this->strides(), new_storage_offset);
+    return result;
   }
 
   SlimTensor& reshape_as_view(c10::IntArrayRef new_shape) {
