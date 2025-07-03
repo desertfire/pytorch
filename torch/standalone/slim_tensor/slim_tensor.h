@@ -11,6 +11,7 @@
 #include <c10/core/Scalar.h>
 #include <c10/core/impl/SizesAndStrides.h>
 #include <torch/csrc/inductor/aoti_standalone/utils.h>
+#include <torch/standalone/reshape_template.h>
 #include <torch/standalone/slim_tensor/storage.h>
 #include <torch/standalone/slim_tensor/utils.h>
 #include <torch/standalone/transpose_int_template.h>
@@ -210,29 +211,26 @@ class SlimTensor {
   SlimTensor copy_(const SlimTensor& other) {
     TORCH_CHECK(
         this->numel() == other.numel(), "copy_: numel of tensors must match");
-    TORCH_CHECK(
-        this->is_contiguous(), "copy_: destination tensor must be contiguous");
-
-    // Case 1: The source tensor is also contiguous. We can do a fast bulk copy.
-    // This works for both CPU and CUDA because storage_->clone() is
-    // device-aware.
-    if (other.is_contiguous()) {
-      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
-      return *this;
-    }
-
-    // Case 2: source is not contiguous we must perform a element-wise copy
-    // that respects source's (other) strides.
-    const size_t elem_size = c10::elementSize(dtype_);
-    char* dst_data = static_cast<char*>(this->data_ptr());
-    const char* src_data = static_cast<const char*>(other.data_ptr()) +
-        other.storage_offset() * elem_size;
 
     if (this->numel() == 0) {
       return *this;
     }
 
-    std::vector<int64_t> counter(other.dim(), 0);
+    // Case 1: Both tensors are contiguous. We can do a fast bulk copy.
+    if (this->is_contiguous() && other.is_contiguous()) {
+      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+      return *this;
+    }
+
+    // Case 2: At least one tensor is non-contiguous, perform element-wise copy
+    // that respects both source and destination strides.
+    const size_t elem_size = c10::elementSize(dtype_);
+    char* dst_data = static_cast<char*>(this->data_ptr()) +
+        this->storage_offset() * elem_size;
+    const char* src_data = static_cast<const char*>(other.data_ptr()) +
+        other.storage_offset() * elem_size;
+
+    std::vector<int64_t> counter(this->dim(), 0);
     for (size_t i = 0; i < this->numel(); i++) {
       // Compute src offset in elements
       int64_t src_offset = 0;
@@ -240,16 +238,22 @@ class SlimTensor {
         src_offset += counter[d] * other.stride(d);
       }
 
+      // Compute dst offset in elements
+      int64_t dst_offset = 0;
+      for (size_t d = 0; d < this->dim(); d++) {
+        dst_offset += counter[d] * this->stride(d);
+      }
+
       // Copy elem_size bytes from src to dst
       if (this->device().is_cpu() && other.device().is_cpu()) {
         std::memcpy(
-            dst_data + i * elem_size,
+            dst_data + dst_offset * elem_size,
             src_data + src_offset * elem_size,
             elem_size);
       } else if (this->device().is_cuda() || other.device().is_cuda()) {
 #if defined(USE_CUDA)
         DeviceTraits<c10::DeviceType::CUDA>::memcpy(
-            dst_data + i * elem_size,
+            dst_data + dst_offset * elem_size,
             src_data + src_offset * elem_size,
             elem_size,
             device(), // dst device
@@ -260,9 +264,9 @@ class SlimTensor {
 #endif
       }
       // Increment the multi-dimensional counter
-      for (int64_t d = static_cast<int64_t>(other.dim()) - 1; d >= 0; --d) {
+      for (int64_t d = static_cast<int64_t>(this->dim()) - 1; d >= 0; --d) {
         counter[d]++;
-        if (counter[d] < other.size(d)) {
+        if (counter[d] < this->size(d)) {
           break;
         }
         counter[d] = 0;
@@ -377,6 +381,19 @@ class SlimTensor {
     return _transpose(*this, dim0, dim1);
   }
 
+  SlimTensor& reshape_as_view(c10::IntArrayRef new_shape) {
+    this->set_sizes_contiguous(new_shape);
+    // after a clone, the new view is relative to the start of the storage.
+    this->storage_offset_ = 0;
+    return *this;
+  }
+
+  SlimTensor reshape(c10::IntArrayRef proposed_shape) const {
+    return _reshape(*this, proposed_shape);
+  }
+
+  SlimTensor clone_contiguous() const;
+
  private:
   void refresh_numel() {
     numel_ =
@@ -448,4 +465,20 @@ inline SlimTensor create_tensor_from_blob(
   Storage storage(new MaybeOwningStorage(data, device));
   return SlimTensor(std::move(storage), sizes, strides, dtype, storage_offset);
 }
+
+inline SlimTensor SlimTensor::clone_contiguous() const {
+  std::vector<int64_t> contig_strides =
+      torch::standalone::compute_contiguous_strides(this->sizes());
+
+  SlimTensor result = create_empty_tensor(
+      this->sizes(),
+      c10::IntArrayRef(contig_strides),
+      this->dtype(),
+      this->device(),
+      0);
+  // copy the data from (potentially non-contiguous) the self tensor
+  result.copy_(*this);
+  return result;
+}
+
 } // namespace torch::standalone

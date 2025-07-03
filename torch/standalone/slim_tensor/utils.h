@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 // OK to use c10 headers here because their corresponding cpp files will be
 // included in the final binary.
@@ -92,6 +93,32 @@ inline int64_t safe_compute_storage_nbytes(
 
   return static_cast<int64_t>(result);
 }
+
+// Helper function for safe contiguous strides computation with overflow checks
+inline std::vector<int64_t> safe_compute_contiguous_strides(
+    c10::IntArrayRef sizes) {
+  int64_t ndim = static_cast<int64_t>(sizes.size());
+  std::vector<int64_t> strides(ndim);
+  if (ndim > 0) {
+    uint64_t stride = 1;
+    for (int64_t i = ndim - 1; i >= 0; i--) {
+      constexpr auto max_val =
+          static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+      TORCH_CHECK(stride <= max_val, "contiguous_strides: stride overflow");
+      strides[i] = static_cast<int64_t>(stride);
+
+      if (sizes[i] != 0) {
+        uint64_t new_stride = 0;
+        bool overflows = c10::mul_overflows(
+            stride, static_cast<uint64_t>(sizes[i]), &new_stride);
+        TORCH_CHECK(
+            !overflows, "contiguous_strides: stride multiplication overflow");
+        stride = new_stride;
+      }
+    }
+  }
+  return strides;
+}
 #endif
 
 inline size_t compute_numel(c10::IntArrayRef sizes) {
@@ -146,6 +173,25 @@ inline int64_t compute_storage_nbytes(
     size += strides[i] * (sizes[i] - 1);
   }
   return static_cast<int64_t>(itemsize) * (storage_offset + size);
+#endif
+}
+
+inline std::vector<int64_t> compute_contiguous_strides(c10::IntArrayRef sizes) {
+#if C10_HAS_BUILTIN_OVERFLOW()
+  return safe_compute_contiguous_strides(sizes);
+#else
+  int64_t ndim = static_cast<int64_t>(sizes.size());
+  std::vector<int64_t> strides(ndim);
+  if (ndim > 0) {
+    int64_t stride = 1;
+    for (int64_t i = ndim - 1; i >= 0; i--) {
+      strides[i] = stride;
+      if (sizes[i] != 0) {
+        stride *= sizes[i];
+      }
+    }
+  }
+  return strides;
 #endif
 }
 
