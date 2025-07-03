@@ -218,7 +218,8 @@ class SlimTensor {
 
     // Case 1: Both tensors are contiguous. We can do a fast bulk copy.
     if (this->is_contiguous() && other.is_contiguous()) {
-      storage_->clone(other.storage(), other.nbytes(), other.storage_offset());
+      size_t src_byte_offset = other.storage_offset() * c10::elementSize(this->dtype_);
+      storage_->clone(other.storage(), other.nbytes(), src_byte_offset);
       return *this;
     }
 
@@ -323,13 +324,13 @@ class SlimTensor {
   }
 
   void fill_(const c10::Scalar& value) {
-
     auto fill_value = [&](auto typed_value) {
       using SType = decltype(typed_value);
       if (this->device().is_cuda()) {
 #ifdef USE_CUDA
         if constexpr (std::is_same_v<SType, bool>) {
-          // Special handling for bool since std::vector<bool> doesn't have data()
+          // Special handling for bool since std::vector<bool> doesn't have
+          // data()
           std::vector<uint8_t> host_data(this->numel(), typed_value ? 1 : 0);
           cudaError_t err = cudaMemcpy(
               this->data_ptr(),
@@ -341,7 +342,6 @@ class SlimTensor {
               "CUDA memcpy failed: ",
               cudaGetErrorString(err));
         } else {
-          // For CUDA, we need to fill all elements, not just copy one value
           std::vector<SType> host_data(this->numel(), typed_value);
           cudaError_t err = cudaMemcpy(
               this->data_ptr(),
