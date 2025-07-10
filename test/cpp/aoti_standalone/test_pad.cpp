@@ -2,10 +2,13 @@
 #include <gtest/gtest.h>
 
 #include <torch/csrc/inductor/aoti_standalone/cpu/pad.h>
-#include <torch/csrc/inductor/aoti_standalone/cuda/pad.h>
 #include <torch/csrc/inductor/aoti_standalone/factory.h>
 #include <torch/standalone/slim_tensor/slim_tensor.h>
 #include <torch/torch.h>
+
+#if defined(USE_CUDA)
+#include <torch/csrc/inductor/aoti_standalone/cuda/pad.h>
+#endif
 
 using ::testing::ElementsAreArray;
 using torch::standalone::SlimTensor;
