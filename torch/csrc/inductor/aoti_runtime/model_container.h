@@ -172,23 +172,12 @@ class AOTInductorModelContainer {
       // Holding a model across the upgrade causes a deadlock when another
       // thread holds a shared lock and waits for the model.
       model_lk.unlock();
-      std::unique_lock constants_folding_lk(model_exec_mutex_);
-      // Double locking to make sure constant folding is only ran once.
-      if (const_folded == ConstantState::INITIALIZED) {
-        auto model = checkout_model();
-        auto folded_const_map = model->run_const_fold(
-            stream, proxy_executor, /* initialization = */ true);
-        update_constant_buffer(
-            std::move(folded_const_map),
-            /* use_inactive = */ false,
-            /* validate_full_update = */ false);
-        const_folded = ConstantState::FOLDED;
-        model.mark_pending();
-      } else if (const_folded != ConstantState::FOLDED) {
-        throw std::runtime_error(
-            "Unknown constant state: " + toStringConstantState(const_folded));
-      }
-      constants_folding_lk.unlock();
+      this->run_const_fold(
+          /* inactive_buffer = */ false,
+          stream,
+          proxy_executor,
+          /* initialization = */ true,
+          /* only_if_initialized = */ true);
       model_lk.lock();
     } else if (const_folded != ConstantState::FOLDED) {
       throw std::runtime_error(
@@ -351,15 +340,27 @@ class AOTInductorModelContainer {
   void run_const_fold(
       bool inactive_buffer,
       DeviceStreamType stream,
-      AOTIProxyExecutorHandle proxy_executor) {
+      AOTIProxyExecutorHandle proxy_executor,
+      bool initialization = false,
+      bool only_if_initialized = false) {
     auto& const_folded =
         inactive_buffer ? inactive().fold_state : active().fold_state;
     if (!inactive_buffer) {
       // We would need to acquire a unique lock if we want to run constant
       // folding on the active buffer.
       std::unique_lock constants_folding_lk(model_exec_mutex_);
+      if (only_if_initialized) {
+        if (const_folded == ConstantState::FOLDED) {
+          return;
+        }
+        if (const_folded != ConstantState::INITIALIZED) {
+          throw std::runtime_error(
+              "Unknown constant state: " + toStringConstantState(const_folded));
+        }
+      }
       auto model = checkout_model();
-      auto folded_const_map = model->run_const_fold(stream, proxy_executor);
+      auto folded_const_map =
+          model->run_const_fold(stream, proxy_executor, initialization);
       update_constant_buffer(
           std::move(folded_const_map),
           /* use_inactive = */ false,
@@ -462,6 +463,7 @@ class AOTInductorModelContainer {
     if (validate_full_update) {
       assert_all_constants(constants_map);
     }
+    auto constants = std::move(constants_map);
 
     auto& target = use_inactive ? inactive() : active();
     auto& source = use_inactive ? active() : inactive();
@@ -471,14 +473,14 @@ class AOTInductorModelContainer {
     for (size_t idx = 0; idx < num_constants; idx++) {
       auto constant_name =
           std::string(models_[0]->constant_name(static_cast<int64_t>(idx)));
-      auto it = constants_map.find(constant_name);
-      if (it == constants_map.end() &&
+      auto it = constants.find(constant_name);
+      if (it == constants.end() &&
           !(use_inactive && _is_tensor_constant_type(idx))) {
         continue;
       }
 
-      AtenTensorHandle tensor;
-      if (it == constants_map.end()) {
+      AtenTensorHandle tensor = nullptr;
+      if (it == constants.end()) {
         aoti_torch_clone(
             source.map->find(constant_name)->second.get(), &tensor);
       } else {
@@ -563,6 +565,7 @@ class AOTInductorModelContainer {
     auto staging_pool = tryMakeConstantsStagingPool();
 #endif
     auto _update_start = std::chrono::steady_clock::now();
+    // NOLINTNEXTLINE(performance-avoid-endl)
     AOTI_LOG_LOADING(
         "update_constant_buffer: starting copy of " << num_constants
                                                     << " constants");
@@ -591,7 +594,7 @@ class AOTInductorModelContainer {
         continue;
       }
 
-      AtenTensorHandle tensor;
+      AtenTensorHandle tensor = nullptr;
       if (it == constants_map.end()) {
         tensor = source.map->find(constant_name)->second.get();
       } else {
@@ -607,16 +610,16 @@ class AOTInductorModelContainer {
         continue;
       }
 
-      void* user_constant_ptr;
-      int64_t constant_size;
-      int64_t* stride;
-      int64_t offset;
+      void* user_constant_ptr = nullptr;
+      int64_t constant_size = 0;
+      int64_t* stride = nullptr;
+      int64_t offset = 0;
       aoti_torch_get_data_ptr(tensor, &user_constant_ptr);
       aoti_torch_get_storage_size(tensor, &constant_size);
       AOTI_TORCH_ERROR_CODE_CHECK(aoti_torch_get_strides(tensor, &stride));
       AOTI_TORCH_ERROR_CODE_CHECK(
           aoti_torch_get_storage_offset(tensor, &offset));
-      auto dtype = models_[0]->constant_dtype(idx);
+      auto dtype = models_[0]->constant_dtype(static_cast<int64_t>(idx));
 
       AtenTensorHandle tensor_handle = nullptr;
 
@@ -735,6 +738,7 @@ class AOTInductorModelContainer {
     auto _update_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::steady_clock::now() - _update_start)
                           .count();
+    // NOLINTNEXTLINE(performance-avoid-endl)
     AOTI_LOG_LOADING(
         "update_constant_buffer: copy completed in " << _update_ms << " ms");
     target.update_array(models_[0].get());
@@ -804,9 +808,9 @@ class AOTInductorModelContainer {
   std::array<ConstantBufferSet, 2> buffers_;
   int active_idx_{0};
 
-  size_t blob_size_;
+  size_t blob_size_{0};
   std::vector<size_t> constants_internal_offset_;
-  size_t aux_cpu_blob_size_;
+  size_t aux_cpu_blob_size_{0};
   std::vector<size_t> aux_cpu_constants_internal_offset_;
 
   // Holds all the AOTInductorModel instances owned by this container.
@@ -845,7 +849,7 @@ class AOTInductorModelContainer {
   class ModelLease {
    public:
     ModelLease(AOTInductorModelContainer& container, AOTInductorModel* model)
-        : container_(container), model_(model) {}
+        : container_(&container), model_(model) {}
 
     ModelLease(const ModelLease&) = delete;
     ModelLease& operator=(const ModelLease&) = delete;
@@ -858,7 +862,7 @@ class AOTInductorModelContainer {
 
     ~ModelLease() {
       if (model_ != nullptr) {
-        container_.return_available_model(model_);
+        container_->return_available_model(model_);
       }
     }
 
@@ -867,12 +871,12 @@ class AOTInductorModelContainer {
     }
 
     void mark_pending() {
-      container_.enqueue_pending_model(model_);
+      container_->enqueue_pending_model(model_);
       model_ = nullptr;
     }
 
    private:
-    AOTInductorModelContainer& container_;
+    AOTInductorModelContainer* container_;
     AOTInductorModel* model_;
   };
 
