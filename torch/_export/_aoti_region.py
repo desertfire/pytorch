@@ -27,6 +27,19 @@ class _AOTIRegion:
     signature: inspect.Signature
 
 
+@dataclasses.dataclass(frozen=True)
+class _AOTIRegionInvocation:
+    args: tuple[Any, ...]
+    kwargs: tuple[tuple[str, Any], ...]
+    output: Any
+
+
+@dataclasses.dataclass(frozen=True)
+class _AOTIRegionCapture:
+    region: _AOTIRegion
+    invocations: tuple[_AOTIRegionInvocation, ...]
+
+
 @typing.overload
 def aoti_region(fn: Callable[_P, _R]) -> Callable[_P, _R]: ...
 
@@ -221,3 +234,112 @@ def _discover_aoti_regions(root: torch.nn.Module) -> tuple[_AOTIRegion, ...]:
         regions.append(_AOTIRegion(module_fqn, module, spec, signature))
 
     return tuple(regions)
+
+
+def _capture_aoti_regions(
+    root: torch.nn.Module,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any] | None = None,
+) -> tuple[_AOTIRegionCapture, ...]:
+    """Run eager calibration and capture every completed region invocation."""
+    regions = _discover_aoti_regions(root)
+    kwargs = {} if kwargs is None else kwargs
+
+    global_hook_kinds = []
+    if torch.nn.modules.module._global_forward_pre_hooks:
+        global_hook_kinds.append("forward pre-hooks")
+    if torch.nn.modules.module._global_forward_hooks:
+        global_hook_kinds.append("forward hooks")
+    if global_hook_kinds:
+        hooks = " and ".join(global_hook_kinds)
+        raise ValueError(
+            f"Global nn.Module {hooks} are unsupported during AOTI region calibration"
+        )
+
+    for region in regions:
+        hook_kinds = []
+        if region.module._forward_pre_hooks:
+            hook_kinds.append("forward pre-hooks")
+        if region.module._forward_hooks:
+            hook_kinds.append("forward hooks")
+        if hook_kinds:
+            hooks = " and ".join(hook_kinds)
+            raise ValueError(
+                f"AOTI region '{region.module_fqn}.forward' has existing "
+                f"{hooks}; region hooks are unsupported"
+            )
+
+    pending: dict[
+        str, list[tuple[int, tuple[Any, ...], tuple[tuple[str, Any], ...]]]
+    ] = {region.module_fqn: [] for region in regions}
+    completed: dict[str, list[tuple[int, _AOTIRegionInvocation]]] = {
+        region.module_fqn: [] for region in regions
+    }
+    next_sequence = {region.module_fqn: 0 for region in regions}
+    handles = []
+
+    def make_pre_hook(module_fqn: str) -> Callable[..., None]:
+        def pre_hook(
+            module: torch.nn.Module,
+            call_args: tuple[Any, ...],
+            call_kwargs: dict[str, Any],
+        ) -> None:
+            sequence = next_sequence[module_fqn]
+            next_sequence[module_fqn] += 1
+            pending[module_fqn].append(
+                (sequence, tuple(call_args), tuple(sorted(call_kwargs.items())))
+            )
+
+        return pre_hook
+
+    def make_post_hook(module_fqn: str) -> Callable[..., None]:
+        def post_hook(
+            module: torch.nn.Module,
+            call_args: tuple[Any, ...],
+            call_kwargs: dict[str, Any],
+            output: Any,
+        ) -> None:
+            sequence, captured_args, captured_kwargs = pending[module_fqn].pop()
+            if output is None:
+                return
+            invocation = _AOTIRegionInvocation(captured_args, captured_kwargs, output)
+            completed[module_fqn].append((sequence, invocation))
+
+        return post_hook
+
+    try:
+        for region in regions:
+            handles.append(
+                region.module.register_forward_pre_hook(
+                    make_pre_hook(region.module_fqn), with_kwargs=True
+                )
+            )
+            handles.append(
+                region.module.register_forward_hook(
+                    make_post_hook(region.module_fqn),
+                    with_kwargs=True,
+                    always_call=True,
+                )
+            )
+        with torch.no_grad():
+            root(*args, **kwargs)
+    finally:
+        for handle in handles:
+            handle.remove()
+
+    unexercised = [
+        region.module_fqn for region in regions if not completed[region.module_fqn]
+    ]
+    if unexercised:
+        names = ", ".join(repr(name) for name in unexercised)
+        raise ValueError(
+            f"AOTI regions {names} did not complete an invocation during calibration"
+        )
+
+    return tuple(
+        _AOTIRegionCapture(
+            region,
+            tuple(invocation for _, invocation in sorted(completed[region.module_fqn])),
+        )
+        for region in regions
+    )
