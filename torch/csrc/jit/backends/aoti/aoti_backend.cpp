@@ -2,6 +2,8 @@
 
 #include <torch/csrc/jit/backends/aoti/aoti_backend.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <fstream>
 #include <limits>
@@ -11,9 +13,16 @@
 #include <vector>
 
 #include <ATen/ATen.h>
+#include <c10/util/error.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/jit/backends/backend.h>
 #include <torch/csrc/jit/backends/backend_preprocess.h>
+
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace torch::jit::aoti {
 namespace {
@@ -198,6 +207,57 @@ at::Tensor readPackageBytes(const std::string& package_path) {
   return package_bytes;
 }
 
+c10::TempFile materializePackage(const at::Tensor& package_bytes) {
+  auto package_file = c10::try_make_tempfile("torch-aoti-package-");
+#if defined(_WIN32)
+  TORCH_CHECK(
+      package_file, "AOTI backend failed to create a temporary package file");
+  TORCH_CHECK(
+      package_file->open(),
+      "AOTI backend failed to open temporary package file for binary writing: ",
+      package_file->name,
+      ": ",
+      c10::utils::str_error(errno));
+#else
+  TORCH_CHECK(
+      package_file,
+      "AOTI backend failed to create a temporary package file: ",
+      c10::utils::str_error(errno));
+#endif
+
+  const auto* data = package_bytes.const_data_ptr<uint8_t>();
+  int64_t offset = 0;
+  while (offset < package_bytes.numel()) {
+    const auto remaining = package_bytes.numel() - offset;
+    const auto chunk_size = static_cast<unsigned int>(
+        std::min<int64_t>(remaining, std::numeric_limits<int>::max()));
+#if defined(_WIN32)
+    int written;
+    do {
+      written = _write(package_file->fd, data + offset, chunk_size);
+    } while (written < 0 && errno == EINTR);
+#else
+    ssize_t written;
+    do {
+      written = ::write(package_file->fd, data + offset, chunk_size);
+    } while (written < 0 && errno == EINTR);
+#endif
+    const auto write_error = errno;
+    TORCH_CHECK(
+        written >= 0,
+        "AOTI backend failed to write embedded package bytes to temporary file ",
+        package_file->name,
+        ": ",
+        c10::utils::str_error(write_error));
+    TORCH_CHECK(
+        written > 0,
+        "AOTI backend made no progress writing embedded package bytes to temporary file ",
+        package_file->name);
+    offset += written;
+  }
+  return std::move(*package_file);
+}
+
 c10::IValue preprocess(
     const Module&,
     const c10::Dict<c10::IValue, c10::IValue>& method_compile_spec,
@@ -243,8 +303,9 @@ c10::impl::GenericDict AOTIBackend::compile(
           package_spec.model_name == compile_spec.model_name &&
           package_spec.device_index == compile_spec.device_index,
       "AOTI backend processed state must match the method compile spec");
+  auto package_file = materializePackage(processed_state.package_bytes);
   auto loader = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
-      package_spec.package_path,
+      package_file.name,
       package_spec.model_name,
       /*run_single_threaded=*/true,
       /*num_runners=*/1,
@@ -253,6 +314,9 @@ c10::impl::GenericDict AOTIBackend::compile(
   c10::Dict<c10::IValue, c10::IValue> handles(
       c10::StringType::get(), c10::AnyType::get());
   handles.insert(kForward, kForward);
+  loader_.reset();
+  package_file_.reset();
+  package_file_.emplace(std::move(package_file));
   loader_ = std::move(loader);
   return handles;
 }

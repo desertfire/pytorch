@@ -3,7 +3,9 @@
 #if !defined(C10_MOBILE) && !defined(ANDROID)
 
 #include <memory>
+#include <optional>
 
+#include <c10/util/tempfile.h>
 #include <torch/csrc/Export.h>
 #include <torch/csrc/jit/backends/backend_interface.h>
 
@@ -32,6 +34,8 @@ class TORCH_API AOTIBackend final : public PyTorchBackendInterface {
       c10::impl::GenericList inputs) override;
 
  private:
+  // Member order keeps the package alive until after loader destruction.
+  std::optional<c10::TempFile> package_file_;
   std::unique_ptr<torch::inductor::AOTIModelPackageLoader> loader_;
 };
 

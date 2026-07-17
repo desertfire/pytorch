@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <queue>
 #include <sstream>
@@ -15,7 +16,9 @@
 #include <thread>
 #include <vector>
 
+#include <c10/util/ScopeExit.h>
 #include <c10/util/irange.h>
+#include <c10/util/tempfile.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner_cpu.h>
 #include <torch/csrc/jit/backends/aoti/aoti_backend.h>
@@ -165,6 +168,35 @@ c10::IValue aotiProcessedState(
       torch::ones({1}, torch::TensorOptions().dtype(torch::kUInt8)));
 }
 
+at::Tensor readPackageBytesForTest(const std::string& package_path) {
+  std::ifstream package_file(package_path, std::ios::binary | std::ios::ate);
+  TORCH_CHECK(package_file.is_open(), "Failed to open package: ", package_path);
+  const std::streamoff package_size = package_file.tellg();
+  TORCH_CHECK(package_size > 0, "Package is empty: ", package_path);
+  TORCH_CHECK(
+      static_cast<std::uintmax_t>(package_size) <=
+              static_cast<std::uintmax_t>(
+                  std::numeric_limits<int64_t>::max()) &&
+          static_cast<std::uintmax_t>(package_size) <=
+              static_cast<std::uintmax_t>(
+                  std::numeric_limits<std::streamsize>::max()),
+      "Package is too large to read: ",
+      package_path);
+  auto package_bytes = torch::empty(
+      {static_cast<int64_t>(package_size)},
+      torch::TensorOptions().dtype(torch::kUInt8));
+  package_file.seekg(0, std::ios::beg);
+  const auto package_size_stream = static_cast<std::streamsize>(package_size);
+  package_file.read(
+      reinterpret_cast<char*>(package_bytes.data_ptr<uint8_t>()),
+      package_size_stream);
+  TORCH_CHECK(
+      package_file.gcount() == package_size_stream,
+      "Failed to read package: ",
+      package_path);
+  return package_bytes;
+}
+
 void test_aoti_backend(const std::string& device) {
   torch::NoGradGuard no_grad;
   const auto data_path =
@@ -179,8 +211,11 @@ void test_aoti_backend(const std::string& device) {
       data_loader.attr("outputs_" + device).toTensorList().vec();
 
   torch::jit::aoti::AOTIBackend backend;
+  const auto compile_spec = aotiMethodCompileSpec(package_path);
   auto handles = backend.compile(
-      aotiProcessedState(package_path), aotiMethodCompileSpec(package_path));
+      aotiProcessedState(
+          package_path, -1, readPackageBytesForTest(package_path)),
+      compile_spec);
   c10::impl::GenericList boxed_inputs(c10::AnyType::get());
   for (const auto& input : inputs) {
     boxed_inputs.emplace_back(input);
@@ -199,6 +234,18 @@ void test_aoti_backend(const std::string& device) {
   for (const auto i : c10::irange(outputs.size())) {
     ASSERT_TRUE(torch::allclose(outputs.get(i).toTensor(), expected[i]));
   }
+
+  handles = backend.compile(
+      aotiProcessedState(
+          package_path, -1, readPackageBytesForTest(package_path)),
+      compile_spec);
+  const auto recompiled_outputs =
+      backend.execute(handles.at("forward"), boxed_inputs);
+  ASSERT_EQ(recompiled_outputs.size(), expected.size());
+  for (const auto i : c10::irange(recompiled_outputs.size())) {
+    ASSERT_TRUE(
+        torch::allclose(recompiled_outputs.get(i).toTensor(), expected[i]));
+  }
 }
 
 void test_aoti_backend_lowering(const std::string& device) {
@@ -209,6 +256,17 @@ void test_aoti_backend_lowering(const std::string& device) {
   auto data_loader = torch::jit::load(data_path);
   const std::string package_path =
       data_loader.attr("pt2_package_path_" + device).toStringRef();
+  auto disposable_dir = c10::make_tempdir("aoti-backend-source-");
+  const auto disposable_package_path =
+      (std::filesystem::path(disposable_dir.name) / "source.pt2").string();
+  auto disposable_package_cleanup = c10::make_scope_exit([&] {
+    std::error_code error;
+    std::filesystem::remove(disposable_package_path, error);
+  });
+  ASSERT_TRUE(std::filesystem::copy_file(
+      package_path,
+      disposable_package_path,
+      std::filesystem::copy_options::overwrite_existing));
   const at::Tensor input =
       data_loader.attr("inputs_" + device).toTensorList().get(0);
   const at::Tensor expected =
@@ -219,7 +277,7 @@ void test_aoti_backend_lowering(const std::string& device) {
     def forward(self, x: Tensor) -> Tensor:
         return x
   )");
-  auto compile_spec = aotiMethodCompileSpec(package_path);
+  auto compile_spec = aotiMethodCompileSpec(disposable_package_path);
   const std::vector<c10::IValue> inputs{input};
   std::stringstream serialized;
   at::Tensor embedded_package_bytes;
@@ -235,7 +293,7 @@ void test_aoti_backend_lowering(const std::string& device) {
                                .toGenericDict();
     const auto package_bytes =
         processed.at("forward").toGenericDict().at("package_bytes").toTensor();
-    std::ifstream package_file(package_path, std::ios::binary);
+    std::ifstream package_file(disposable_package_path, std::ios::binary);
     std::ostringstream package_contents;
     package_contents << package_file.rdbuf();
     const auto source_bytes = package_contents.str();
@@ -256,6 +314,7 @@ void test_aoti_backend_lowering(const std::string& device) {
     ASSERT_TRUE(torch::allclose(lowered.forward(inputs).toTensor(), expected));
     lowered.save(serialized);
   }
+  ASSERT_TRUE(std::filesystem::remove(disposable_package_path));
   serialized.seekg(0);
   auto loaded = torch::jit::load(serialized);
   const auto loaded_package_bytes = loaded.attr("__loweredModule__")
