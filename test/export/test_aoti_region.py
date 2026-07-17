@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
+import functools
 import io
+import types
 from typing import Any
 from unittest.mock import call, Mock, patch
 
@@ -22,6 +25,7 @@ from torch._export._aoti_region import (
     _render_aoti_region_stub_source,
     _substitute_compiled_aoti_regions,
     AOTIRegionSpec,
+    bind_aoti_region,
     compile_aoti_regions,
 )
 from torch.export.graph_signature import InputKind, OutputKind
@@ -45,6 +49,412 @@ def _schema_stub(source: str) -> _AOTIRegionStub:
 class TestAOTIRegion(TestCase):
     def test_compile_aoti_regions_is_public(self) -> None:
         self.assertIs(torch._export.compile_aoti_regions, compile_aoti_regions)
+
+    def test_bind_aoti_region_is_public(self) -> None:
+        self.assertIs(torch._export.bind_aoti_region, bind_aoti_region)
+
+    def test_binds_free_function_with_eager_args_and_kwargs(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            return x * 2 + y
+
+        bound = torch._export.bind_aoti_region(fast)
+        x = torch.randn(3)
+        y = torch.randn(3)
+
+        self.assertEqual(bound(x, y=y), fast(x, y))
+        self.assertEqual(getattr(fast, _AOTI_REGION_SPEC_ATTR), AOTIRegionSpec())
+
+    def test_bound_function_is_discoverable_with_exact_signature(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor]:
+            return (x + y,)
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.fast = torch._export.bind_aoti_region(fast)
+
+        region = _discover_aoti_regions(Model())[0]
+
+        self.assertEqual(region.module_fqn, "fast")
+        parameters = tuple(region.signature.parameters.values())
+        self.assertEqual(
+            [parameter.name for parameter in parameters], ["self", "x", "y"]
+        )
+        self.assertIs(parameters[1].annotation, torch.Tensor)
+        self.assertIs(parameters[2].annotation, torch.Tensor)
+        self.assertEqual(region.signature.return_annotation, tuple[torch.Tensor])
+
+    def test_bound_function_instances_are_independent(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return x + 1
+
+        first = torch._export.bind_aoti_region(fast)
+        second = torch._export.bind_aoti_region(fast)
+        first.eval()
+
+        self.assertIsNot(first, second)
+        self.assertFalse(first.training)
+        self.assertTrue(second.training)
+        self.assertEqual(first(torch.ones(2)), second(torch.ones(2)))
+
+    def test_bound_function_preserves_eager_exception(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            raise RuntimeError("function failed")
+
+        bound = torch._export.bind_aoti_region(fast)
+        with self.assertRaisesRegex(RuntimeError, "function failed"):
+            bound(torch.ones(2))
+
+    def test_rejects_unmarked_or_invalid_bound_function(self) -> None:
+        def unmarked(x: torch.Tensor) -> torch.Tensor:
+            return x + 1
+
+        with self.assertRaisesRegex(ValueError, "must be marked with @aoti_region"):
+            torch._export.bind_aoti_region(unmarked)
+
+        setattr(unmarked, _AOTI_REGION_SPEC_ATTR, object())
+        with self.assertRaisesRegex(TypeError, "invalid AOTI region marker metadata"):
+            torch._export.bind_aoti_region(unmarked)
+
+        with self.assertRaisesRegex(TypeError, "expects a Python function"):
+            torch._export.bind_aoti_region(torch.nn.Identity())
+
+    def test_rejects_tensor_and_module_function_captures(self) -> None:
+        tensor = torch.ones(2)
+
+        @torch._export.aoti_region
+        def tensor_capture(x: torch.Tensor) -> torch.Tensor:
+            return x + tensor
+
+        with self.assertRaisesRegex(
+            ValueError, "captures torch.Tensor at closure variable 'tensor'"
+        ):
+            torch._export.bind_aoti_region(tensor_capture)
+
+        namespace = {
+            "aoti_region": torch._export.aoti_region,
+            "module": torch.nn.ReLU(),
+            "torch": torch,
+        }
+        exec(
+            "@aoti_region\n"
+            "def module_capture(x: torch.Tensor) -> torch.Tensor:\n"
+            "    return module(x)\n",
+            namespace,
+        )
+        with self.assertRaisesRegex(
+            ValueError, "captures nn.Module at global variable 'module'"
+        ):
+            torch._export.bind_aoti_region(namespace["module_capture"])
+
+    def test_rejects_nested_and_indirect_function_captures(self) -> None:
+        tensor = torch.ones(2)
+        nested = {"values": [tensor]}
+
+        @torch._export.aoti_region
+        def nested_capture(x: torch.Tensor) -> torch.Tensor:
+            return x + nested["values"][0]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"closure variable 'nested'.*\['values'\]\[0\]",
+        ):
+            torch._export.bind_aoti_region(nested_capture)
+
+        def helper(x: torch.Tensor) -> torch.Tensor:
+            return x + tensor
+
+        @torch._export.aoti_region
+        def helper_capture(x: torch.Tensor) -> torch.Tensor:
+            return helper(x)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "closure variable 'helper'.*closure variable 'tensor'",
+        ):
+            torch._export.bind_aoti_region(helper_capture)
+
+        partial = functools.partial(torch.add, other=tensor)
+
+        @torch._export.aoti_region
+        def partial_capture(x: torch.Tensor) -> torch.Tensor:
+            return partial(x)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"closure variable 'partial'.*keywords\['other'\]",
+        ):
+            torch._export.bind_aoti_region(partial_capture)
+
+    def test_rejects_helper_default_and_attribute_captures(self) -> None:
+        tensor = torch.ones(2)
+
+        def default_helper(
+            x: torch.Tensor, state: torch.Tensor = tensor
+        ) -> torch.Tensor:
+            return x + state
+
+        @torch._export.aoti_region
+        def default_capture(x: torch.Tensor) -> torch.Tensor:
+            return default_helper(x)
+
+        with self.assertRaisesRegex(ValueError, r"__defaults__\[0\]"):
+            torch._export.bind_aoti_region(default_capture)
+
+        def kwdefault_helper(
+            x: torch.Tensor, *, state: torch.Tensor = tensor
+        ) -> torch.Tensor:
+            return x + state
+
+        @torch._export.aoti_region
+        def kwdefault_capture(x: torch.Tensor) -> torch.Tensor:
+            return kwdefault_helper(x)
+
+        with self.assertRaisesRegex(ValueError, r"__kwdefaults__\['state'\]"):
+            torch._export.bind_aoti_region(kwdefault_capture)
+
+        def attribute_helper(x: torch.Tensor) -> torch.Tensor:
+            return x + attribute_helper.state
+
+        attribute_helper.state = tensor
+
+        @torch._export.aoti_region
+        def attribute_capture(x: torch.Tensor) -> torch.Tensor:
+            return attribute_helper(x)
+
+        with self.assertRaisesRegex(ValueError, r"__dict__\['state'\]"):
+            torch._export.bind_aoti_region(attribute_capture)
+
+    def test_rejects_bound_receiver_and_slice_captures(self) -> None:
+        tensor = torch.ones(2)
+        tensor_add = functools.partial(tensor.add)
+
+        @torch._export.aoti_region
+        def tensor_receiver(x: torch.Tensor) -> torch.Tensor:
+            return tensor_add(x)
+
+        with self.assertRaisesRegex(ValueError, r"\.func\.__self__"):
+            torch._export.bind_aoti_region(tensor_receiver)
+
+        values = [tensor]
+        append = values.append
+
+        @torch._export.aoti_region
+        def list_receiver(x: torch.Tensor) -> torch.Tensor:
+            append(x)
+            return x
+
+        with self.assertRaisesRegex(ValueError, r"__self__\[0\]"):
+            torch._export.bind_aoti_region(list_receiver)
+
+        module_call = torch.nn.ReLU().__call__
+
+        @torch._export.aoti_region
+        def module_receiver(x: torch.Tensor) -> torch.Tensor:
+            return module_call(x)
+
+        with self.assertRaisesRegex(ValueError, r"__self__"):
+            torch._export.bind_aoti_region(module_receiver)
+
+        index = slice(tensor, None, None)
+
+        @torch._export.aoti_region
+        def slice_capture(x: torch.Tensor) -> torch.Tensor:
+            return x + index.start
+
+        with self.assertRaisesRegex(ValueError, r"closure variable 'index'\.start"):
+            torch._export.bind_aoti_region(slice_capture)
+
+    def test_rejects_state_reached_through_cyclic_capture(self) -> None:
+        tensor = torch.ones(2)
+        cycle: list[Any] = []
+        cycle.append(cycle)
+        cycle.append({"state": tensor})
+
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return x + cycle[1]["state"]
+
+        with self.assertRaisesRegex(
+            ValueError, r"closure variable 'cycle'.*\[1\]\['state'\]"
+        ):
+            torch._export.bind_aoti_region(fast)
+
+    def test_rejects_custom_class_and_module_namespace_captures(self) -> None:
+        tensor = torch.ones(2)
+
+        class State:
+            value = tensor
+
+        @torch._export.aoti_region
+        def class_capture(x: torch.Tensor) -> torch.Tensor:
+            return x + State.value
+
+        with self.assertRaisesRegex(TypeError, "unsupported object class.*State"):
+            torch._export.bind_aoti_region(class_capture)
+
+        def helper(x: torch.Tensor) -> torch.Tensor:
+            return x + tensor
+
+        namespace = types.ModuleType("torch.fake")
+        namespace.state = tensor
+        namespace.helper = helper
+
+        @torch._export.aoti_region
+        def module_capture(x: torch.Tensor) -> torch.Tensor:
+            return namespace.helper(x)
+
+        with self.assertRaisesRegex(
+            TypeError, "unsupported object module 'torch.fake'"
+        ):
+            torch._export.bind_aoti_region(module_capture)
+
+    def test_rejects_nested_global_function_capture(self) -> None:
+        namespace = {
+            "aoti_region": torch._export.aoti_region,
+            "state": {"nested": (torch.ones(2),)},
+            "torch": torch,
+        }
+        exec(
+            "@aoti_region\n"
+            "def fast(x: torch.Tensor) -> torch.Tensor:\n"
+            "    return x + state['nested'][0]\n",
+            namespace,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"global variable 'state'.*\['nested'\]\[0\]",
+        ):
+            torch._export.bind_aoti_region(namespace["fast"])
+
+    def test_rejects_unsupported_bound_function_signatures(self) -> None:
+        @torch._export.aoti_region
+        def positional_only(x: torch.Tensor, /) -> torch.Tensor:
+            return x
+
+        @torch._export.aoti_region
+        def variadic(*values: torch.Tensor) -> torch.Tensor:
+            return values[0]
+
+        @torch._export.aoti_region
+        def keyword_only(*, x: torch.Tensor) -> torch.Tensor:
+            return x
+
+        @torch._export.aoti_region
+        def default_value(x: torch.Tensor = torch.ones(1)) -> torch.Tensor:
+            return x
+
+        @torch._export.aoti_region
+        def self_parameter(self: torch.Tensor) -> torch.Tensor:
+            return self
+
+        @torch._export.aoti_region
+        def missing_input(x) -> torch.Tensor:
+            return x
+
+        @torch._export.aoti_region
+        def tuple_input(x: tuple[torch.Tensor]) -> torch.Tensor:
+            return x[0]
+
+        @torch._export.aoti_region
+        def missing_return(x: torch.Tensor):
+            return x
+
+        @torch._export.aoti_region
+        def nested_return(
+            x: torch.Tensor,
+        ) -> tuple[tuple[torch.Tensor]]:
+            return ((x,),)
+
+        @torch._export.aoti_region
+        def empty_return(x: torch.Tensor) -> tuple[()]:
+            return ()
+
+        cases = (
+            (positional_only, "positional-only parameter 'x'"),
+            (variadic, "variadic parameters"),
+            (keyword_only, "keyword-only parameter 'x'"),
+            (default_value, "default parameter values"),
+            (self_parameter, "parameter named 'self'"),
+            (missing_input, "parameter 'x' is missing a type annotation"),
+            (tuple_input, "parameter 'x' must be annotated as torch.Tensor"),
+            (missing_return, "missing a return type annotation"),
+            (nested_return, "nonempty flat fixed tuple of torch.Tensor"),
+            (empty_return, "nonempty flat fixed tuple of torch.Tensor"),
+        )
+        for function, error in cases:
+            with self.subTest(function=function.__name__):
+                with self.assertRaisesRegex(TypeError, error):
+                    torch._export.bind_aoti_region(function)
+
+    @parametrize("legacy", (True, False))
+    def test_strict_exports_bound_function(self, legacy: bool) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            return torch.relu(x + y)
+
+        bound = torch._export.bind_aoti_region(fast)
+        x = torch.randn(3)
+        y = torch.randn(3)
+
+        with torch._export.config.patch(use_legacy_dynamo_graph_capture=legacy):
+            exported = torch.export.export(bound, (x, y), strict=True)
+
+        self.assertEqual(exported.module()(x, y), fast(x, y))
+
+    def test_deepcopies_bound_function_module(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return x + 1
+
+        bound = torch._export.bind_aoti_region(fast)
+        copied = copy.deepcopy(bound)
+
+        self.assertIsNot(copied, bound)
+        self.assertEqual(copied(torch.ones(2)), bound(torch.ones(2)))
+
+    def test_allows_immutable_scalar_function_capture(self) -> None:
+        scale = 3
+
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return x * scale
+
+        bound = torch._export.bind_aoti_region(fast)
+
+        self.assertEqual(bound(torch.ones(2)), torch.full((2,), scale))
+
+    def test_allows_direct_pytorch_function_capture(self) -> None:
+        relu = torch.nn.functional.relu
+
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return relu(x)
+
+        bound = torch._export.bind_aoti_region(fast)
+
+        self.assertEqual(bound(torch.tensor([-1.0, 2.0])), torch.tensor([0.0, 2.0]))
+
+    def test_rejects_function_disguised_as_pytorch_function(self) -> None:
+        tensor = torch.ones(2)
+
+        @functools.wraps(torch.nn.functional.relu)
+        def relu(x: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.relu(x) + tensor
+
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return relu(x)
+
+        with self.assertRaisesRegex(
+            ValueError, "closure variable 'relu'.*closure variable 'tensor'"
+        ):
+            torch._export.bind_aoti_region(fast)
 
     @parametrize("parameter", ("root", "args", "kwargs"))
     def test_compile_aoti_regions_validates_inputs_before_pipeline(
@@ -129,7 +539,7 @@ class TestAOTIRegion(TestCase):
 
         with self.assertRaisesRegex(ValueError, "already marked"):
             torch._export.aoti_region(forward)
-        with self.assertRaisesRegex(TypeError, "must decorate a Python method"):
+        with self.assertRaisesRegex(TypeError, "must decorate a Python function"):
             torch._export.aoti_region(torch.nn.Identity())
 
     def test_rejects_root_and_non_forward_regions(self) -> None:
@@ -251,7 +661,7 @@ class TestAOTIRegion(TestCase):
         def marked_outside(receiver, x: torch.Tensor) -> torch.Tensor:
             return x
 
-        with self.assertRaisesRegex(TypeError, "must decorate a Python method"):
+        with self.assertRaisesRegex(TypeError, "must decorate a Python function"):
             torch._export.aoti_region(descriptor(marked_outside))
 
     def test_rejects_aliased_and_overlapping_regions(self) -> None:

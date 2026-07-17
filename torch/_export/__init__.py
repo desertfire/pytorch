@@ -49,7 +49,7 @@ from torch.fx.graph import _PyTreeCodeGen, _PyTreeInfo
 from .wrappers import _wrap_submodules
 from .utils import _materialize_cpp_cia_ops
 from . import config
-from ._aoti_region import aoti_region, compile_aoti_regions
+from ._aoti_region import aoti_region, bind_aoti_region, compile_aoti_regions
 
 if TYPE_CHECKING:
     from torch._C._aoti import AOTIModelContainerRunner

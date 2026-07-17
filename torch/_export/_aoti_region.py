@@ -1,6 +1,9 @@
 import copy
 import dataclasses
+import functools
 import inspect
+import sys
+import types
 import typing
 from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
@@ -84,15 +87,16 @@ def aoti_region(
 def aoti_region(
     fn: Callable[_P, _R] | None = None,
 ) -> Callable[_P, _R] | Callable[[Callable[_P, _R]], Callable[_P, _R]]:
-    """Mark an ``nn.Module.forward`` method as an experimental AOTI region.
+    """Mark a Python function as an experimental AOTI region.
 
     This decorator only records metadata for :func:`compile_aoti_regions` to
-    discover and compile the marked submodule.
+    discover and compile the marked submodule. A marked free function must be
+    bound with :func:`bind_aoti_region` and registered as a submodule.
     """
 
     def mark(method: Callable[_P, _R]) -> Callable[_P, _R]:
         if not inspect.isfunction(method):
-            raise TypeError("@aoti_region must decorate a Python method")
+            raise TypeError("@aoti_region must decorate a Python function")
         if hasattr(method, _AOTI_REGION_SPEC_ATTR):
             raise ValueError(
                 f"{method.__qualname__} is already marked as an AOTI region"
@@ -103,6 +107,307 @@ def aoti_region(
     if fn is None:
         return mark
     return mark(fn)
+
+
+def _validate_aoti_region_function_captures(fn: Callable[..., Any]) -> None:
+    visited: set[int] = set()
+
+    def trusted_module(module: types.ModuleType) -> bool:
+        name = module.__name__
+        allowed_name = (
+            name in {"builtins", "math", "operator"}
+            or name == "torch"
+            or name.startswith("torch.")
+        )
+        return allowed_name and sys.modules.get(name) is module
+
+    def resolves_from_module(value: Any) -> bool:
+        module_name = getattr(value, "__module__", None)
+        qualname = getattr(value, "__qualname__", None)
+        if not isinstance(module_name, str) or not isinstance(qualname, str):
+            return False
+        module = sys.modules.get(module_name)
+        if not isinstance(module, types.ModuleType) or not trusted_module(module):
+            return False
+        resolved: Any = module
+        try:
+            for name in qualname.split("."):
+                if name == "<locals>":
+                    return False
+                resolved = inspect.getattr_static(resolved, name)
+        except AttributeError:
+            return False
+        return resolved is value
+
+    def reject_state(value: Any, path: str) -> None:
+        if isinstance(value, torch.nn.Parameter):
+            state_kind = "nn.Parameter"
+        elif isinstance(value, torch.Tensor):
+            state_kind = "torch.Tensor"
+        elif isinstance(value, torch.nn.Module):
+            state_kind = "nn.Module"
+        else:
+            return
+        raise ValueError(
+            f"AOTI region function '{fn.__qualname__}' captures {state_kind} "
+            f"at {path}; bind_aoti_region cannot register captured state. "
+            "Define an annotated nn.Module region instead"
+        )
+
+    def visit_function(function: Callable[..., Any], path: str) -> None:
+        if id(function) in visited:
+            return
+        visited.add(id(function))
+        for index, value in enumerate(function.__defaults__ or ()):
+            visit(value, f"{path}.__defaults__[{index}]")
+        for name, value in (function.__kwdefaults__ or {}).items():
+            visit(value, f"{path}.__kwdefaults__[{name!r}]")
+        for name, value in function.__dict__.items():
+            visit(name, f"{path}.__dict__ key {name!r}")
+            visit(value, f"{path}.__dict__[{name!r}]")
+        closure_vars = inspect.getclosurevars(function)
+        for capture_kind, captures in (
+            ("closure variable", closure_vars.nonlocals),
+            ("global variable", closure_vars.globals),
+        ):
+            for name, value in captures.items():
+                capture_path = f"{capture_kind} '{name}'"
+                if path:
+                    capture_path = f"{path} -> {capture_path}"
+                visit(value, capture_path)
+
+    def visit(value: Any, path: str) -> None:
+        reject_state(value, path)
+        if value is None or value is Ellipsis or value is NotImplemented:
+            return
+        if isinstance(
+            value,
+            (
+                bool,
+                int,
+                float,
+                complex,
+                str,
+                bytes,
+                range,
+                AOTIRegionSpec,
+                torch.device,
+                torch.dtype,
+                torch.layout,
+                torch.memory_format,
+            ),
+        ):
+            return
+        if isinstance(value, types.ModuleType) and trusted_module(value):
+            return
+        if (
+            isinstance(value, type)
+            and (
+                value.__module__ == "builtins"
+                or value.__module__ == "torch"
+                or value.__module__.startswith("torch.")
+            )
+            and resolves_from_module(value)
+        ):
+            return
+        if isinstance(value, types.MethodType):
+            if id(value) in visited:
+                return
+            visited.add(id(value))
+            visit(value.__self__, f"{path}.__self__")
+            visit(value.__func__, f"{path}.__func__")
+            return
+        if isinstance(value, (types.BuiltinMethodType, types.MethodWrapperType)):
+            if id(value) in visited:
+                return
+            visited.add(id(value))
+            receiver = getattr(value, "__self__", None)
+            if receiver is not None:
+                visit(receiver, f"{path}.__self__")
+            return
+        if inspect.isbuiltin(value) or inspect.ismethoddescriptor(value):
+            return
+        if inspect.isfunction(value):
+            module = sys.modules.get(value.__module__ or "")
+            if (
+                isinstance(module, types.ModuleType)
+                and trusted_module(module)
+                and value.__globals__ is module.__dict__
+                and resolves_from_module(value)
+            ):
+                return
+            visit_function(value, path)
+            return
+        if id(value) in visited:
+            return
+        visited.add(id(value))
+        if isinstance(value, functools.partial):
+            visit(value.func, f"{path}.func")
+            for index, argument in enumerate(value.args):
+                visit(argument, f"{path}.args[{index}]")
+            for name, argument in (value.keywords or {}).items():
+                visit(argument, f"{path}.keywords[{name!r}]")
+            return
+        if isinstance(value, (dict, types.MappingProxyType)):
+            for key, item in value.items():
+                visit(key, f"{path} key {key!r}")
+                visit(item, f"{path}[{key!r}]")
+            return
+        if isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                visit(item, f"{path}[{index}]")
+            return
+        if isinstance(value, (set, frozenset)):
+            for index, item in enumerate(value):
+                visit(item, f"{path} element {index}")
+            return
+        if isinstance(value, slice):
+            visit(value.start, f"{path}.start")
+            visit(value.stop, f"{path}.stop")
+            visit(value.step, f"{path}.step")
+            return
+        if isinstance(value, types.ModuleType):
+            object_description = f"module '{value.__name__}'"
+        elif isinstance(value, type):
+            object_description = f"class '{value.__module__}.{value.__qualname__}'"
+        else:
+            object_description = repr(type(value))
+        raise TypeError(
+            f"AOTI region function '{fn.__qualname__}' captures unsupported "
+            f"object {object_description} at {path}. Define an annotated nn.Module "
+            "region instead"
+        )
+
+    visit_function(fn, "")
+
+
+def _validate_aoti_region_function_signature(
+    fn: Callable[..., Any],
+) -> tuple[inspect.Signature, dict[str, Any]]:
+    try:
+        signature = inspect.signature(fn)
+        type_hints = typing.get_type_hints(fn)
+    except (AttributeError, NameError, SyntaxError, TypeError) as exc:
+        raise TypeError(
+            f"Could not resolve annotations for AOTI region function "
+            f"'{fn.__qualname__}': {exc}"
+        ) from exc
+
+    for parameter in signature.parameters.values():
+        if parameter.name == "self":
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' cannot have a "
+                "parameter named 'self'"
+            )
+        if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' does not support "
+                f"positional-only parameter '{parameter.name}'"
+            )
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' does not support "
+                "variadic parameters"
+            )
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' does not support "
+                f"keyword-only parameter '{parameter.name}'"
+            )
+        if parameter.default is not inspect.Parameter.empty:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' does not support "
+                "default parameter values"
+            )
+        if parameter.name not in type_hints:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' parameter "
+                f"'{parameter.name}' is missing a type annotation"
+            )
+        if type_hints[parameter.name] is not torch.Tensor:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' parameter "
+                f"'{parameter.name}' must be annotated as torch.Tensor, but "
+                f"got {type_hints[parameter.name]!r}"
+            )
+        if not parameter.name.isascii():
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' parameter "
+                f"'{parameter.name}' must be ASCII"
+            )
+        if parameter.name in _TORCHSCRIPT_RESERVED_PARAMETER_NAMES:
+            raise TypeError(
+                f"AOTI region function '{fn.__qualname__}' parameter "
+                f"'{parameter.name}' is reserved by TorchScript"
+            )
+
+    if "return" not in type_hints:
+        raise TypeError(
+            f"AOTI region function '{fn.__qualname__}' is missing a return "
+            "type annotation"
+        )
+    return_type = type_hints["return"]
+    return_args = typing.get_args(return_type)
+    if return_type is not torch.Tensor and not (
+        typing.get_origin(return_type) is tuple
+        and return_args
+        and Ellipsis not in return_args
+        and all(element is torch.Tensor for element in return_args)
+    ):
+        raise TypeError(
+            f"AOTI region function '{fn.__qualname__}' return must be annotated "
+            "as torch.Tensor or a nonempty flat fixed tuple of torch.Tensor, "
+            f"but got {return_type!r}"
+        )
+    return signature, type_hints
+
+
+def bind_aoti_region(fn: Callable[_P, _R]) -> torch.nn.Module:
+    """Bind a marked free function to a fresh experimental AOTI region module.
+
+    Register the returned module as a submodule before calling
+    :func:`compile_aoti_regions`; direct calls to marked free functions are not
+    discovered as regions.
+    """
+    if not inspect.isfunction(fn):
+        raise TypeError("bind_aoti_region expects a Python function")
+
+    spec = getattr(fn, _AOTI_REGION_SPEC_ATTR, None)
+    if spec is None:
+        raise ValueError(
+            f"Function '{fn.__qualname__}' must be marked with @aoti_region "
+            "before it can be bound"
+        )
+    if not isinstance(spec, AOTIRegionSpec):
+        raise TypeError(
+            f"Function '{fn.__qualname__}' has invalid AOTI region marker metadata"
+        )
+
+    signature, type_hints = _validate_aoti_region_function_signature(fn)
+    _validate_aoti_region_function_captures(fn)
+
+    parameter_names = tuple(signature.parameters)
+    function_name = "_function"
+    while function_name in signature.parameters:
+        function_name = "_" + function_name
+    arguments = ", ".join(("self", *parameter_names))
+    call_arguments = ", ".join(parameter_names)
+    source = (
+        f"def forward({arguments}):\n    return {function_name}({call_arguments})\n"
+    )
+    namespace: dict[str, Any] = {}
+    exec(source, {function_name: fn}, namespace)
+    forward = namespace["forward"]
+    forward.__annotations__ = dict(type_hints)
+    forward.__module__ = fn.__module__
+    forward.__name__ = "forward"
+    forward.__qualname__ = "BoundAOTIRegion.forward"
+    setattr(forward, _AOTI_REGION_SPEC_ATTR, spec)
+    BoundAOTIRegion = type("BoundAOTIRegion", (torch.nn.Module,), {"forward": forward})
+    return BoundAOTIRegion()
 
 
 def _marked_methods(module: torch.nn.Module) -> tuple[tuple[str, Any, Any], ...]:
