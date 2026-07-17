@@ -647,3 +647,27 @@ def _create_aoti_region_stub(region_export: _AOTIRegionExport) -> _AOTIRegionStu
             self.define(source)
 
     return _AOTIRegionStub(SchemaModule(), source)
+
+
+def _lower_aoti_region_stub(
+    stub: _AOTIRegionStub, package_path: str
+) -> "torch.jit.RecursiveScriptModule":
+    if not isinstance(stub, _AOTIRegionStub):
+        raise TypeError(f"Expected an _AOTIRegionStub, but got {type(stub)!r}")
+    if not isinstance(package_path, str):
+        raise TypeError(
+            f"package_path must be a string, but got {type(package_path)!r}"
+        )
+    if not package_path:
+        raise ValueError("package_path must be a non-empty string")
+
+    method_compile_spec = {
+        "forward": {
+            "package_path": package_path,
+            "model_name": "model",
+            "device_index": -1,
+        }
+    }
+    return torch._C._jit_to_backend(  # pyrefly: ignore[missing-attribute]
+        "aoti", stub.module, method_compile_spec
+    )

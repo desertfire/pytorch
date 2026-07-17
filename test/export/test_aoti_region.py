@@ -9,10 +9,12 @@ from unittest.mock import Mock, patch
 import torch
 from torch._export._aoti_region import (
     _AOTI_REGION_SPEC_ATTR,
+    _AOTIRegionStub,
     _capture_aoti_regions,
     _create_aoti_region_stub,
     _discover_aoti_regions,
     _export_aoti_regions,
+    _lower_aoti_region_stub,
     _render_aoti_region_stub_source,
     AOTIRegionSpec,
 )
@@ -894,6 +896,53 @@ class TestAOTIRegion(TestCase):
         tuple_type = tuple_stub.module.forward.schema.arguments[1].type
         self.assertEqual(str(tensor_type), "Tensor")
         self.assertEqual(str(tuple_type), "Tuple[Tensor, Tensor]")
+
+    def test_lowers_stub_with_aoti_package_spec(self) -> None:
+        module = Mock()
+        stub = _AOTIRegionStub(module, "stub source")
+        lowered = Mock()
+
+        with patch("torch._C._jit_to_backend", return_value=lowered) as to_backend:
+            result = _lower_aoti_region_stub(stub, "/tmp/region.pt2")
+
+        self.assertIs(result, lowered)
+        to_backend.assert_called_once_with(
+            "aoti",
+            module,
+            {
+                "forward": {
+                    "package_path": "/tmp/region.pt2",
+                    "model_name": "model",
+                    "device_index": -1,
+                }
+            },
+        )
+
+    @parametrize("package_path", (None, 1, False))
+    def test_rejects_non_string_aoti_package_path(self, package_path: Any) -> None:
+        stub = _AOTIRegionStub(Mock(), "stub source")
+
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(TypeError, "package_path must be a string"):
+                _lower_aoti_region_stub(stub, package_path)
+
+        to_backend.assert_not_called()
+
+    def test_rejects_empty_aoti_package_path(self) -> None:
+        stub = _AOTIRegionStub(Mock(), "stub source")
+
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(ValueError, "non-empty string"):
+                _lower_aoti_region_stub(stub, "")
+
+        to_backend.assert_not_called()
+
+    def test_rejects_non_stub_aoti_region_lowering(self) -> None:
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(TypeError, "Expected an _AOTIRegionStub"):
+                _lower_aoti_region_stub(Mock(), "/tmp/region.pt2")
+
+        to_backend.assert_not_called()
 
     @parametrize("unsupported", ("positional_only", "self_name"))
     def test_rejects_unrepresentable_stub_signature(self, unsupported: str) -> None:
