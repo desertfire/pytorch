@@ -494,6 +494,7 @@ inductor_core_resources = [
     "torch/csrc/inductor/aoti_torch/mkldnn_tensor.cpp",
     "torch/csrc/inductor/aoti_torch/oss_proxy_executor.cpp",
     "torch/csrc/inductor/inductor_ops.cpp",
+    "torch/csrc/jit/backends/aoti/aoti_backend.cpp",
     "torch/csrc/jit/serialization/pickle.cpp",
     "torch/csrc/shim_common.cpp",
     "torch/csrc/shim_exception_state.cpp",
