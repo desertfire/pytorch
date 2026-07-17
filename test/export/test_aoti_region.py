@@ -10,8 +10,10 @@ import torch
 from torch._export._aoti_region import (
     _AOTI_REGION_SPEC_ATTR,
     _capture_aoti_regions,
+    _create_aoti_region_stub,
     _discover_aoti_regions,
     _export_aoti_regions,
+    _render_aoti_region_stub_source,
     AOTIRegionSpec,
 )
 from torch.export.graph_signature import InputKind, OutputKind
@@ -793,6 +795,173 @@ class TestAOTIRegion(TestCase):
         ) as error:
             _export_aoti_regions(captures)
         self.assertIsNotNone(error.exception.__cause__)
+
+    def test_creates_typed_schema_stub(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(
+                self,
+                /,
+                input: torch.Tensor,
+                state: tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]],
+            ) -> tuple[tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+                return (input + state[0], state[1][0] + state[1][1]), input + 1
+
+        region = Region()
+        model = torch.nn.Sequential(region)
+        input = torch.randn(2)
+        state = (torch.randn(2), (torch.randn(2), torch.randn(2)))
+        region_export = _export_aoti_regions(
+            _capture_aoti_regions(model, (input, state))
+        )[0]
+
+        stub = _create_aoti_region_stub(region_export)
+
+        self.assertIs(model[0], region)
+        self.assertEqual(
+            stub.source,
+            'def forward(self, input: Tensor, state: Tuple[Tensor, Tuple[Tensor, Tensor]]) -> Tuple[Tuple[Tensor, Tensor], Tensor]:\n    assert False, "AOTI region schema stub cannot execute"\n',  # noqa: B950, RUF100
+        )
+        schema = stub.module.forward.schema
+        arguments = schema.arguments[1:]
+        self.assertEqual([argument.name for argument in arguments], ["input", "state"])
+        self.assertEqual(
+            [str(argument.type) for argument in arguments],
+            ["Tensor", "Tuple[Tensor, Tuple[Tensor, Tensor]]"],
+        )
+        self.assertEqual(
+            [str(result.type) for result in schema.returns],
+            ["Tuple[Tuple[Tensor, Tensor], Tensor]"],
+        )
+        with self.assertRaisesRegex(
+            torch.jit.Error, "AOTI region schema stub cannot execute"
+        ):
+            stub.module(input, state)
+        with self.assertRaisesRegex(dataclasses.FrozenInstanceError, "cannot assign"):
+            stub.source = ""
+
+    def test_stub_parameter_can_shadow_runtime_error(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, RuntimeError: torch.Tensor) -> torch.Tensor:
+                return RuntimeError + 1
+
+        value = torch.randn(2)
+        region_export = _export_aoti_regions(
+            _capture_aoti_regions(torch.nn.Sequential(Region()), (value,))
+        )[0]
+
+        stub = _create_aoti_region_stub(region_export)
+
+        self.assertEqual(stub.module.forward.schema.arguments[1].name, "RuntimeError")
+        with self.assertRaisesRegex(
+            torch.jit.Error, "AOTI region schema stub cannot execute"
+        ):
+            stub.module(value)
+
+    def test_schema_stubs_have_distinct_jit_types(self) -> None:
+        class TensorRegion(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, value: torch.Tensor) -> torch.Tensor:
+                return value + 1
+
+        class TupleRegion(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(
+                self, values: tuple[torch.Tensor, torch.Tensor]
+            ) -> tuple[torch.Tensor, torch.Tensor]:
+                return values[0] + 1, values[1] + 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.tensor = TensorRegion()
+                self.tuple = TupleRegion()
+
+            def forward(
+                self, x: torch.Tensor, y: torch.Tensor
+            ) -> tuple[torch.Tensor, torch.Tensor]:
+                return self.tensor(x), self.tuple((x, y))[0]
+
+        exports = _export_aoti_regions(
+            _capture_aoti_regions(Model(), (torch.randn(2), torch.randn(2)))
+        )
+        tensor_stub = _create_aoti_region_stub(exports[0])
+        tuple_stub = _create_aoti_region_stub(exports[1])
+
+        self.assertNotEqual(tensor_stub.module._c._type(), tuple_stub.module._c._type())
+        tensor_type = tensor_stub.module.forward.schema.arguments[1].type
+        tuple_type = tuple_stub.module.forward.schema.arguments[1].type
+        self.assertEqual(str(tensor_type), "Tensor")
+        self.assertEqual(str(tuple_type), "Tuple[Tensor, Tensor]")
+
+    @parametrize("unsupported", ("positional_only", "self_name"))
+    def test_rejects_unrepresentable_stub_signature(self, unsupported: str) -> None:
+        if unsupported == "positional_only":
+
+            class Region(torch.nn.Module):
+                @torch._export.aoti_region
+                def forward(self, value: torch.Tensor, /) -> torch.Tensor:
+                    return value + 1
+
+            error = "positional-only parameter 'value' cannot be represented"
+        else:
+
+            class Region(torch.nn.Module):
+                @torch._export.aoti_region
+                def forward(module, self: torch.Tensor) -> torch.Tensor:
+                    return self + 1
+
+            error = "parameter 'self' cannot be represented"
+
+        region_export = _export_aoti_regions(
+            _capture_aoti_regions(torch.nn.Sequential(Region()), (torch.randn(2),))
+        )[0]
+
+        with self.assertRaisesRegex(TypeError, error):
+            _create_aoti_region_stub(region_export)
+
+    def test_rejects_non_ascii_stub_parameter_name(self) -> None:
+        parameter_name = "value_\u03b4"
+        function_globals = {"torch": torch}
+        function_locals: dict[str, Any] = {}
+        exec(
+            f"def forward(self, {parameter_name}: torch.Tensor) -> torch.Tensor:\n"
+            f"    return {parameter_name} + 1\n",
+            function_globals,
+            function_locals,
+        )
+        forward = torch._export.aoti_region(function_locals["forward"])
+        region_type = type("Region", (torch.nn.Module,), {"forward": forward})
+        region = _discover_aoti_regions(torch.nn.Sequential(region_type()))[0]
+
+        with self.assertRaisesRegex(
+            TypeError,
+            f"AOTI region '0.forward' parameter '{parameter_name}'.*ASCII",
+        ):
+            _render_aoti_region_stub_source(region)
+
+    @parametrize("parameter_name", ("Ellipsis", "NoneType"))
+    def test_rejects_torchscript_reserved_parameter_name(
+        self, parameter_name: str
+    ) -> None:
+        function_globals = {"torch": torch}
+        function_locals: dict[str, Any] = {}
+        exec(
+            f"def forward(self, {parameter_name}: torch.Tensor) -> torch.Tensor:\n"
+            f"    return {parameter_name} + 1\n",
+            function_globals,
+            function_locals,
+        )
+        forward = torch._export.aoti_region(function_locals["forward"])
+        region_type = type("Region", (torch.nn.Module,), {"forward": forward})
+        region = _discover_aoti_regions(torch.nn.Sequential(region_type()))[0]
+
+        with self.assertRaisesRegex(
+            TypeError,
+            f"AOTI region '0.forward' parameter '{parameter_name}' cannot be represented.*reserved",
+        ):
+            _render_aoti_region_stub_source(region)
 
 
 instantiate_parametrized_tests(TestAOTIRegion)

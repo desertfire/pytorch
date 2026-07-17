@@ -11,6 +11,7 @@ from torch.export.graph_signature import InputKind, OutputKind
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 _AOTI_REGION_SPEC_ATTR = "_torch_aoti_region_spec"
+_TORCHSCRIPT_RESERVED_PARAMETER_NAMES = {"Ellipsis", "NoneType"}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,6 +47,12 @@ class _AOTIRegionExport:
     region: _AOTIRegion
     example_args: tuple[Any, ...]
     exported_program: "torch.export.ExportedProgram"
+
+
+@dataclasses.dataclass(frozen=True)
+class _AOTIRegionStub:
+    module: "torch.jit.ScriptModule"
+    source: str
 
 
 @typing.overload
@@ -581,3 +588,62 @@ def _export_aoti_regions(
         exports.append(_AOTIRegionExport(region, example_args, exported_program))
 
     return tuple(exports)
+
+
+def _render_aoti_region_stub_type(annotation: Any) -> str:
+    if annotation is torch.Tensor:
+        return "Tensor"
+    elements = ", ".join(
+        _render_aoti_region_stub_type(element)
+        for element in typing.get_args(annotation)
+    )
+    return f"Tuple[{elements}]"
+
+
+def _render_aoti_region_stub_source(region: _AOTIRegion) -> str:
+    parameters = tuple(region.signature.parameters.values())[1:]
+    for parameter in parameters:
+        if not parameter.name.isascii():
+            raise TypeError(
+                f"AOTI region '{region.module_fqn}.forward' parameter "
+                f"'{parameter.name}' cannot be represented in TorchScript; "
+                "parameter names must be ASCII"
+            )
+        if parameter.name in _TORCHSCRIPT_RESERVED_PARAMETER_NAMES:
+            raise TypeError(
+                f"AOTI region '{region.module_fqn}.forward' parameter "
+                f"'{parameter.name}' cannot be represented in TorchScript; "
+                "parameter name is reserved"
+            )
+        if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+            raise TypeError(
+                f"AOTI region '{region.module_fqn}.forward' positional-only "
+                f"parameter '{parameter.name}' cannot be represented in TorchScript"
+            )
+        if parameter.name == "self":
+            raise TypeError(
+                f"AOTI region '{region.module_fqn}.forward' parameter 'self' "
+                "cannot be represented in a TorchScript method"
+            )
+
+    arguments = ["self"]
+    arguments.extend(
+        f"{parameter.name}: {_render_aoti_region_stub_type(parameter.annotation)}"
+        for parameter in parameters
+    )
+    return_type = _render_aoti_region_stub_type(region.signature.return_annotation)
+    return (
+        f"def forward({', '.join(arguments)}) -> {return_type}:\n"
+        '    assert False, "AOTI region schema stub cannot execute"\n'
+    )
+
+
+def _create_aoti_region_stub(region_export: _AOTIRegionExport) -> _AOTIRegionStub:
+    source = _render_aoti_region_stub_source(region_export.region)
+
+    class SchemaModule(torch.jit.ScriptModule):
+        def __init__(self) -> None:
+            super().__init__()
+            self.define(source)
+
+    return _AOTIRegionStub(SchemaModule(), source)
