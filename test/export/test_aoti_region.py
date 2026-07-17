@@ -13,7 +13,6 @@ from torch._export._aoti_region import (
     _AOTIRegionStub,
     _capture_aoti_regions,
     _compile_aoti_region,
-    _compile_aoti_regions,
     _CompiledAOTIRegion,
     _create_aoti_region_stub,
     _discover_aoti_regions,
@@ -22,6 +21,7 @@ from torch._export._aoti_region import (
     _render_aoti_region_stub_source,
     _substitute_compiled_aoti_regions,
     AOTIRegionSpec,
+    compile_aoti_regions,
 )
 from torch.export.graph_signature import InputKind, OutputKind
 from torch.testing._internal.common_utils import (
@@ -42,6 +42,36 @@ def _schema_stub(source: str) -> _AOTIRegionStub:
 
 
 class TestAOTIRegion(TestCase):
+    def test_compile_aoti_regions_is_public(self) -> None:
+        self.assertIs(torch._export.compile_aoti_regions, compile_aoti_regions)
+
+    @parametrize("parameter", ("root", "args", "kwargs"))
+    def test_compile_aoti_regions_validates_inputs_before_pipeline(
+        self, parameter: str
+    ) -> None:
+        root: Any = torch.nn.Identity()
+        args: Any = ()
+        kwargs: Any = None
+        if parameter == "root":
+            root = object()
+            error = "Expected an nn.Module"
+        elif parameter == "args":
+            args = []
+            error = "args must be a tuple"
+        else:
+            kwargs = []
+            error = "kwargs must be a dict or None"
+
+        with (
+            patch("torch._export._aoti_region._capture_aoti_regions") as capture,
+            patch("torch.jit.script") as script,
+            self.assertRaisesRegex(TypeError, error),
+        ):
+            compile_aoti_regions(root, args, kwargs)
+
+        capture.assert_not_called()
+        script.assert_not_called()
+
     def test_discovers_nested_regions_in_module_order(self) -> None:
         class Region(torch.nn.Module):
             @torch._export.aoti_region
@@ -1297,7 +1327,7 @@ class TestAOTIRegion(TestCase):
         self.assertIs(model.get_submodule("nested.0"), region.module)
 
     def test_compiles_aoti_regions_and_scripts_parent_in_order(self) -> None:
-        root = Mock()
+        root = torch.nn.Identity()
         args = (Mock(), Mock())
         kwargs = {"scale": Mock()}
         captures = (Mock(), Mock())
@@ -1349,7 +1379,7 @@ class TestAOTIRegion(TestCase):
             ) as substitute_mock,
             patch("torch.jit.script", side_effect=script) as script_mock,
         ):
-            result = _compile_aoti_regions(root, args, kwargs)
+            result = compile_aoti_regions(root, args, kwargs)
 
         self.assertEqual(
             events,
@@ -1378,7 +1408,7 @@ class TestAOTIRegion(TestCase):
         model = Model()
         x = torch.randn(2)
 
-        result = _compile_aoti_regions(model, (x,))
+        result = compile_aoti_regions(model, (x,))
 
         self.assertIsInstance(result, torch.jit.RecursiveScriptModule)
         self.assertEqual(model.calls, torch.zeros_like(model.calls))
@@ -1387,7 +1417,7 @@ class TestAOTIRegion(TestCase):
         self.assertEqual(result.calls, torch.ones_like(result.calls))
 
     def test_region_compile_failure_stops_parent_compilation(self) -> None:
-        root = Mock()
+        root = torch.nn.Identity()
         region_exports = (Mock(), Mock(), Mock())
         first_compiled = Mock()
         error = RuntimeError("region compilation failed")
@@ -1413,7 +1443,7 @@ class TestAOTIRegion(TestCase):
             with self.assertRaisesRegex(
                 RuntimeError, "region compilation failed"
             ) as cm:
-                _compile_aoti_regions(root, ())
+                compile_aoti_regions(root, ())
 
         self.assertIs(cm.exception, error)
         self.assertEqual(

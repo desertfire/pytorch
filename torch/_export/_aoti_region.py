@@ -78,7 +78,7 @@ def aoti_region(
 ) -> Callable[_P, _R] | Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Mark an ``nn.Module.forward`` method as an experimental AOTI region.
 
-    This decorator only records metadata. A later hybrid compilation API will
+    This decorator only records metadata for :func:`compile_aoti_regions` to
     discover and compile the marked submodule.
     """
 
@@ -841,16 +841,34 @@ def _substitute_compiled_aoti_regions(
     return result
 
 
-def _compile_aoti_regions(
+def compile_aoti_regions(
     root: torch.nn.Module,
     args: tuple[Any, ...],
     kwargs: dict[str, Any] | None = None,
 ) -> "torch.jit.RecursiveScriptModule":
-    """Compile annotated regions and recursively script a copied parent module.
+    """Compile annotated regions into a hybrid TorchScript/AOTInductor module.
 
-    Modules without annotated regions skip calibration, are copied, and are
-    recursively scripted through the remaining pipeline.
+    When marked regions exist, this experimental API executes the original
+    ``root`` under :func:`torch.no_grad` with static example inputs before
+    copying it. Ordinary forward side effects and state mutations can therefore
+    occur during calibration. With no marked regions, eager execution is
+    skipped. The API strict-exports and AOTI-compiles marked regions, recursively
+    scripts the copied parent, and returns a
+    :class:`torch.jit.RecursiveScriptModule`.
+
+    The current backend ABI supports flat Tensor inputs and either one Tensor or
+    a nonempty flat tuple of Tensors as output. For CUDA, its single-thread
+    runtime uses the caller's current stream. Calls must use one host thread,
+    must not overlap, and must remain on one ordered stream unless the caller
+    externally synchronizes before switching streams.
     """
+    if not isinstance(root, torch.nn.Module):
+        raise TypeError(f"Expected an nn.Module, but got {type(root)!r}")
+    if not isinstance(args, tuple):
+        raise TypeError(f"args must be a tuple, but got {type(args)!r}")
+    if kwargs is not None and not isinstance(kwargs, dict):
+        raise TypeError(f"kwargs must be a dict or None, but got {type(kwargs)!r}")
+
     captures = _capture_aoti_regions(root, args, kwargs)
     region_exports = _export_aoti_regions(captures)
     compiled_regions = tuple(
