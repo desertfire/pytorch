@@ -31,6 +31,14 @@ class _AOTIRegion:
 
 
 @dataclasses.dataclass(frozen=True)
+class _AOTIRegionState:
+    fqn: str
+    kind: str
+    tensor: torch.Tensor
+    region_fqn: str | None
+
+
+@dataclasses.dataclass(frozen=True)
 class _AOTIRegionInvocation:
     args: tuple[Any, ...]
     kwargs: tuple[tuple[str, Any], ...]
@@ -201,6 +209,66 @@ def _validated_signature(
     )
 
 
+def _validate_region_state_aliasing(
+    root: torch.nn.Module, regions: tuple[_AOTIRegion, ...]
+) -> None:
+    if not regions:
+        return
+
+    state_by_region: dict[str | None, list[_AOTIRegionState]] = {
+        None: [],
+        **{region.module_fqn: [] for region in regions},
+    }
+    for kind, named_state in (
+        ("parameter", root.named_parameters(remove_duplicate=False)),
+        ("buffer", root.named_buffers(remove_duplicate=False)),
+    ):
+        for fqn, tensor in named_state:
+            region_fqn = next(
+                (
+                    region.module_fqn
+                    for region in regions
+                    if fqn.startswith(region.module_fqn + ".")
+                ),
+                None,
+            )
+            state_by_region[region_fqn].append(
+                _AOTIRegionState(fqn, kind, tensor, region_fqn)
+            )
+    for state in state_by_region.values():
+        state.sort(key=lambda item: (item.fqn, item.kind))
+
+    region_fqns = sorted(region.module_fqn for region in regions)
+    for index, region_fqn in enumerate(region_fqns):
+        region_state = state_by_region[region_fqn]
+        other_state_groups = [state_by_region[None]]
+        other_state_groups.extend(
+            state_by_region[other_fqn] for other_fqn in region_fqns[index + 1 :]
+        )
+        for other_state in other_state_groups:
+            for left in region_state:
+                for right in other_state:
+                    try:
+                        aliases = (
+                            left.tensor is right.tensor
+                            or torch._C._is_alias_of(  # pyrefly: ignore[missing-attribute]
+                                left.tensor, right.tensor
+                            )
+                        )
+                    except RuntimeError as exc:
+                        raise ValueError(
+                            f"Could not validate state aliasing across AOTI region "
+                            f"'{region_fqn}': {left.kind} '{left.fqn}' and "
+                            f"{right.kind} '{right.fqn}': {exc}"
+                        ) from exc
+                    if aliases:
+                        raise ValueError(
+                            f"AOTI region '{region_fqn}' has state aliasing across "
+                            f"its boundary: {left.kind} '{left.fqn}' shares storage "
+                            f"with {right.kind} '{right.fqn}'"
+                        )
+
+
 def _discover_aoti_regions(root: torch.nn.Module) -> tuple[_AOTIRegion, ...]:
     """Discover and validate marked submodule ``forward`` methods."""
     if not isinstance(root, torch.nn.Module):
@@ -256,7 +324,9 @@ def _discover_aoti_regions(root: torch.nn.Module) -> tuple[_AOTIRegion, ...]:
         signature = _validated_signature(descriptor, module_fqn)
         regions.append(_AOTIRegion(module_fqn, module, spec, signature))
 
-    return tuple(regions)
+    result = tuple(regions)
+    _validate_region_state_aliasing(root, result)
+    return result
 
 
 def _capture_aoti_regions(

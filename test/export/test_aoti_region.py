@@ -277,6 +277,200 @@ class TestAOTIRegion(TestCase):
         with self.assertRaisesRegex(ValueError, "regions '0' and '0.child' overlap"):
             _discover_aoti_regions(torch.nn.Sequential(ParentRegion()))
 
+    def test_rejects_same_parameter_across_region_boundary(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, weight: torch.nn.Parameter) -> None:
+                super().__init__()
+                self.weight = weight
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x * self.weight
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(3))
+                self.region = Region(self.weight)
+
+        model = Model()
+        with self.assertRaisesRegex(
+            ValueError,
+            "region 'region'.*parameter 'region.weight'.*parameter 'weight'",
+        ):
+            _discover_aoti_regions(model)
+
+    def test_rejects_parameter_storage_across_region_boundary(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, weight: torch.Tensor) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(weight[:2])
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x * self.weight
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(3))
+                self.region = Region(self.weight)
+
+        model = Model()
+        with self.assertRaisesRegex(
+            ValueError,
+            "parameter 'region.weight' shares storage with parameter 'weight'",
+        ):
+            _discover_aoti_regions(model)
+
+    def test_rejects_parameter_to_buffer_storage_across_region_boundary(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, value: torch.Tensor) -> None:
+                super().__init__()
+                self.register_buffer("value", value[:2])
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.value
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(3))
+                self.region = Region(self.weight)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "buffer 'region.value' shares storage with parameter 'weight'",
+        ):
+            _discover_aoti_regions(Model())
+
+    @parametrize("alias_kind", ("same", "view"))
+    def test_rejects_buffer_storage_across_region_boundary(
+        self, alias_kind: str
+    ) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, value: torch.Tensor) -> None:
+                super().__init__()
+                self.register_buffer(
+                    "value", value if alias_kind == "same" else value[:2]
+                )
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.value
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("value", torch.randn(3))
+                self.region = Region(self.value)
+
+        model = Model()
+        with self.assertRaisesRegex(
+            ValueError,
+            "buffer 'region.value' shares storage with buffer 'value'",
+        ):
+            _discover_aoti_regions(model)
+
+    def test_rejects_state_storage_shared_between_regions(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, value: torch.Tensor) -> None:
+                super().__init__()
+                self.register_buffer("value", value)
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.value
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                value = torch.randn(3)
+                self.first = Region(value)
+                self.second = Region(value)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "region 'first'.*buffer 'first.value'.*buffer 'second.value'",
+        ):
+            _discover_aoti_regions(Model())
+
+    def test_allows_state_aliases_within_one_region(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(3))
+                self.weight_alias = self.weight
+                self.register_buffer("value", torch.randn(3))
+                self.register_buffer("value_view", self.value[:2])
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x * self.weight + self.value
+
+        model = torch.nn.Sequential(Region())
+
+        with patch("torch._C._is_alias_of") as is_alias:
+            regions = _discover_aoti_regions(model)
+
+        self.assertEqual([region.module_fqn for region in regions], ["0"])
+        is_alias.assert_not_called()
+
+    def test_rejects_state_aliasing_before_calibration(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self, value: torch.Tensor) -> None:
+                super().__init__()
+                self.register_buffer("value", value)
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.value
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls = 0
+                self.register_buffer("value", torch.randn(3))
+                self.region = Region(self.value)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.calls += 1
+                return self.region(x)
+
+        model = Model()
+
+        with self.assertRaisesRegex(ValueError, "state aliasing"):
+            _capture_aoti_regions(model, (torch.randn(3),))
+
+        self.assertEqual(model.calls, 0)
+
+    def test_normalizes_state_alias_check_failures(self) -> None:
+        class Region(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("value", torch.randn(3))
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.value
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("value", torch.randn(3))
+                self.region = Region()
+
+        with (
+            patch("torch._C._is_alias_of", side_effect=RuntimeError("unsupported")),
+            self.assertRaisesRegex(
+                ValueError,
+                "Could not validate state aliasing across AOTI region 'region'.*"
+                "buffer 'region.value'.*buffer 'value'.*unsupported",
+            ),
+        ):
+            _discover_aoti_regions(Model())
+
     def test_captures_nested_regions_and_kwargs(self) -> None:
         class AddRegion(torch.nn.Module):
             @torch._export.aoti_region
