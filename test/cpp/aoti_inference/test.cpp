@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <queue>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -16,6 +17,7 @@
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/inductor/aoti_runner/model_container_runner_cpu.h>
 #include <torch/csrc/jit/backends/aoti/aoti_backend.h>
+#include <torch/csrc/jit/backends/backend_detail.h>
 #if defined(USE_CUDA)
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -127,14 +129,7 @@ void expectC10Error(
   }
 }
 
-c10::impl::GenericDict aotiMethodCompileSpec() {
-  c10::Dict<c10::IValue, c10::IValue> spec(
-      c10::StringType::get(), c10::AnyType::get());
-  spec.insert("forward", c10::IValue());
-  return spec;
-}
-
-c10::IValue aotiProcessedState(
+c10::impl::GenericDict aotiMethodCompileSpec(
     const std::string& package_path,
     int64_t device_index = -1) {
   c10::Dict<c10::IValue, c10::IValue> package_spec(
@@ -143,10 +138,16 @@ c10::IValue aotiProcessedState(
   package_spec.insert("model_name", "model");
   package_spec.insert("device_index", device_index);
 
-  c10::Dict<c10::IValue, c10::IValue> processed(
+  c10::Dict<c10::IValue, c10::IValue> spec(
       c10::StringType::get(), c10::AnyType::get());
-  processed.insert("forward", package_spec);
-  return processed;
+  spec.insert("forward", package_spec);
+  return spec;
+}
+
+c10::IValue aotiProcessedState(
+    const std::string& package_path,
+    int64_t device_index = -1) {
+  return aotiMethodCompileSpec(package_path, device_index);
 }
 
 void test_aoti_backend(const std::string& device) {
@@ -155,7 +156,7 @@ void test_aoti_backend(const std::string& device) {
       (std::filesystem::path(STRINGIZE(CMAKE_CURRENT_BINARY_DIR)) / "data.pt")
            .string();
   auto data_loader = torch::jit::load(data_path);
-  const auto& package_path =
+  const std::string package_path =
       data_loader.attr("pt2_package_path_" + device).toStringRef();
   const auto& inputs =
       data_loader.attr("inputs_" + device).toTensorList().vec();
@@ -164,7 +165,7 @@ void test_aoti_backend(const std::string& device) {
 
   torch::jit::aoti::AOTIBackend backend;
   auto handles = backend.compile(
-      aotiProcessedState(package_path), aotiMethodCompileSpec());
+      aotiProcessedState(package_path), aotiMethodCompileSpec(package_path));
   c10::impl::GenericList boxed_inputs(c10::AnyType::get());
   for (const auto& input : inputs) {
     boxed_inputs.emplace_back(input);
@@ -183,6 +184,41 @@ void test_aoti_backend(const std::string& device) {
   for (const auto i : c10::irange(outputs.size())) {
     ASSERT_TRUE(torch::allclose(outputs.get(i).toTensor(), expected[i]));
   }
+}
+
+void test_aoti_backend_lowering(const std::string& device) {
+  torch::NoGradGuard no_grad;
+  const auto data_path =
+      (std::filesystem::path(STRINGIZE(CMAKE_CURRENT_BINARY_DIR)) / "data.pt")
+           .string();
+  auto data_loader = torch::jit::load(data_path);
+  const std::string package_path =
+      data_loader.attr("pt2_package_path_" + device).toStringRef();
+  const at::Tensor input =
+      data_loader.attr("inputs_" + device).toTensorList().get(0);
+  const at::Tensor expected =
+      data_loader.attr("outputs_" + device).toTensorList().get(0);
+
+  torch::jit::Module module("AOTIBackendTestModule");
+  module.define(R"(
+    def forward(self, x: Tensor) -> Tensor:
+        return x
+  )");
+  auto compile_spec = aotiMethodCompileSpec(package_path);
+  const std::vector<c10::IValue> inputs{input};
+  std::stringstream serialized;
+  {
+    auto lowered = torch::jit::detail::codegen_backend_module(
+        "aoti",
+        module,
+        compile_spec,
+        c10::DictType::create(c10::StringType::get(), c10::AnyType::get()));
+    ASSERT_TRUE(torch::allclose(lowered.forward(inputs).toTensor(), expected));
+    lowered.save(serialized);
+  }
+  serialized.seekg(0);
+  auto loaded = torch::jit::load(serialized);
+  ASSERT_TRUE(torch::allclose(loaded.forward(inputs).toTensor(), expected));
 }
 
 void test_aoti(const std::string& device, bool use_runtime_constant_folding) {
@@ -1323,6 +1359,10 @@ TEST_F(AotInductorTest, AOTIBackendTestCpu) {
   test_aoti_backend("cpu");
 }
 
+TEST_F(AotInductorTest, AOTIBackendLoweringAndSaveLoadCpu) {
+  test_aoti_backend_lowering("cpu");
+}
+
 TEST(AOTIBackendValidationTest, IsRegistered) {
   ASSERT_NE(
       torch::getCustomClass("__torch__.torch.classes.__backends__.aoti"),
@@ -1343,8 +1383,45 @@ TEST(AOTIBackendValidationTest, RejectsUnsupportedMethodBeforePackageLoad) {
 TEST(AOTIBackendValidationTest, RejectsMalformedStateBeforePackageLoad) {
   torch::jit::aoti::AOTIBackend backend;
   expectC10Error(
-      [&] { backend.compile(c10::IValue(), aotiMethodCompileSpec()); },
+      [&] {
+        backend.compile(c10::IValue(), aotiMethodCompileSpec("unused.pt2"));
+      },
       "processed state must be a Dict[str, Any]");
+}
+
+TEST(AOTIBackendValidationTest, RejectsMalformedCompileSpecDuringPreprocess) {
+  torch::jit::Module module("AOTIBackendInvalidSpecModule");
+  module.define(R"(
+    def forward(self, x: Tensor) -> Tensor:
+        return x
+  )");
+  c10::Dict<c10::IValue, c10::IValue> package_spec(
+      c10::StringType::get(), c10::AnyType::get());
+  package_spec.insert("package_path", "unused.pt2");
+  c10::Dict<c10::IValue, c10::IValue> compile_spec(
+      c10::StringType::get(), c10::AnyType::get());
+  compile_spec.insert("forward", package_spec);
+
+  expectC10Error(
+      [&] {
+        torch::jit::detail::codegen_backend_module(
+            "aoti",
+            module,
+            compile_spec,
+            c10::DictType::create(c10::StringType::get(), c10::AnyType::get()));
+      },
+      "method compile spec \"forward\" package spec must contain exactly");
+}
+
+TEST(AOTIBackendValidationTest, RejectsMismatchedProcessedState) {
+  torch::jit::aoti::AOTIBackend backend;
+  expectC10Error(
+      [&] {
+        backend.compile(
+            aotiProcessedState("processed.pt2"),
+            aotiMethodCompileSpec("compile_spec.pt2"));
+      },
+      "processed state must match the method compile spec");
 }
 
 TEST(AOTIBackendValidationTest, RejectsOutOfRangeDeviceBeforePackageLoad) {
@@ -1352,7 +1429,8 @@ TEST(AOTIBackendValidationTest, RejectsOutOfRangeDeviceBeforePackageLoad) {
   expectC10Error(
       [&] {
         backend.compile(
-            aotiProcessedState("unused.pt2", 128), aotiMethodCompileSpec());
+            aotiProcessedState("unused.pt2", 128),
+            aotiMethodCompileSpec("unused.pt2", 128));
       },
       "device_index must be an integer from -1 through 127");
 }

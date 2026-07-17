@@ -10,6 +10,7 @@
 
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/jit/backends/backend.h>
+#include <torch/csrc/jit/backends/backend_preprocess.h>
 
 namespace torch::jit::aoti {
 namespace {
@@ -26,51 +27,60 @@ struct PackageSpec {
   c10::DeviceIndex device_index;
 };
 
-void validateMethodCompileSpec(
-    const c10::impl::GenericDict& method_compile_spec) {
+PackageSpec parsePackageSpec(
+    const c10::impl::GenericDict& state,
+    const char* state_name) {
   TORCH_CHECK(
-      method_compile_spec.size() == 1 && method_compile_spec.contains(kForward),
+      state.size() == 1,
+      "AOTI backend ",
+      state_name,
+      " must contain exactly the \"forward\" package spec");
+  const auto item = state.begin();
+  TORCH_CHECK(
+      item->key().isString() && item->key().toStringRef() == kForward,
       "AOTI backend supports exactly one method named \"forward\"");
-}
 
-PackageSpec parsePackageSpec(const c10::IValue& processed) {
-  TORCH_CHECK(
-      processed.isGenericDict(),
-      "AOTI backend processed state must be a Dict[str, Any]");
-  const auto processed_dict = processed.toGenericDict();
-  TORCH_CHECK(
-      processed_dict.size() == 1 && processed_dict.contains(kForward),
-      "AOTI backend processed state must contain exactly the \"forward\" package spec");
-
-  const auto& forward = processed_dict.at(kForward);
+  const auto& forward = item->value();
   TORCH_CHECK(
       forward.isGenericDict(),
-      "AOTI backend \"forward\" package spec must be a Dict[str, Any]");
+      "AOTI backend ",
+      state_name,
+      " \"forward\" package spec must be a Dict[str, Any]");
   const auto package_dict = forward.toGenericDict();
   const std::unordered_set<std::string> expected_keys{
       kPackagePath, kModelName, kDeviceIndex};
   TORCH_CHECK(
       package_dict.size() == expected_keys.size(),
-      "AOTI backend \"forward\" package spec must contain exactly \"package_path\", \"model_name\", and \"device_index\"");
+      "AOTI backend ",
+      state_name,
+      " \"forward\" package spec must contain exactly \"package_path\", \"model_name\", and \"device_index\"");
   for (const auto& item : package_dict) {
     TORCH_CHECK(
         item.key().isString() && expected_keys.count(item.key().toStringRef()),
-        "AOTI backend \"forward\" package spec contains unsupported key");
+        "AOTI backend ",
+        state_name,
+        " \"forward\" package spec contains unsupported key");
   }
 
   const auto& package_path = package_dict.at(kPackagePath);
   TORCH_CHECK(
       package_path.isString() && !package_path.toStringRef().empty(),
-      "AOTI backend package_path must be a non-empty string");
+      "AOTI backend ",
+      state_name,
+      " package_path must be a non-empty string");
   const auto& model_name = package_dict.at(kModelName);
   TORCH_CHECK(
       model_name.isString() && !model_name.toStringRef().empty(),
-      "AOTI backend model_name must be a non-empty string");
+      "AOTI backend ",
+      state_name,
+      " model_name must be a non-empty string");
   const auto& device_index = package_dict.at(kDeviceIndex);
   TORCH_CHECK(
       device_index.isInt() && device_index.toInt() >= -1 &&
           device_index.toInt() <= std::numeric_limits<c10::DeviceIndex>::max(),
-      "AOTI backend device_index must be an integer from -1 through ",
+      "AOTI backend ",
+      state_name,
+      " device_index must be an integer from -1 through ",
       static_cast<int64_t>(std::numeric_limits<c10::DeviceIndex>::max()));
 
   return {
@@ -79,7 +89,24 @@ PackageSpec parsePackageSpec(const c10::IValue& processed) {
       static_cast<c10::DeviceIndex>(device_index.toInt())};
 }
 
+PackageSpec parseProcessedState(const c10::IValue& processed) {
+  TORCH_CHECK(
+      processed.isGenericDict(),
+      "AOTI backend processed state must be a Dict[str, Any]");
+  return parsePackageSpec(processed.toGenericDict(), "processed state");
+}
+
+c10::IValue preprocess(
+    const Module&,
+    const c10::Dict<c10::IValue, c10::IValue>& method_compile_spec,
+    const BackendDebugHandleGenerator&) {
+  parsePackageSpec(method_compile_spec, "method compile spec");
+  return method_compile_spec;
+}
+
 static auto backend = torch::jit::backend<AOTIBackend>(kBackendName);
+static auto preprocessor =
+    torch::jit::backend_preprocess_register(kBackendName, preprocess);
 
 } // namespace
 
@@ -92,8 +119,14 @@ bool AOTIBackend::is_available() {
 c10::impl::GenericDict AOTIBackend::compile(
     c10::IValue processed,
     c10::impl::GenericDict method_compile_spec) {
-  validateMethodCompileSpec(method_compile_spec);
-  const auto package_spec = parsePackageSpec(processed);
+  const auto compile_spec =
+      parsePackageSpec(method_compile_spec, "method compile spec");
+  const auto package_spec = parseProcessedState(processed);
+  TORCH_CHECK(
+      package_spec.package_path == compile_spec.package_path &&
+          package_spec.model_name == compile_spec.model_name &&
+          package_spec.device_index == compile_spec.device_index,
+      "AOTI backend processed state must match the method compile spec");
   auto loader = std::make_unique<torch::inductor::AOTIModelPackageLoader>(
       package_spec.package_path,
       package_spec.model_name,
