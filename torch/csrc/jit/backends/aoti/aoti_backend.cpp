@@ -2,12 +2,15 @@
 
 #include <torch/csrc/jit/backends/aoti/aoti_backend.h>
 
+#include <cstdint>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include <ATen/ATen.h>
 #include <torch/csrc/inductor/aoti_package/model_package_loader.h>
 #include <torch/csrc/jit/backends/backend.h>
 #include <torch/csrc/jit/backends/backend_preprocess.h>
@@ -20,6 +23,7 @@ constexpr auto kForward = "forward";
 constexpr auto kPackagePath = "package_path";
 constexpr auto kModelName = "model_name";
 constexpr auto kDeviceIndex = "device_index";
+constexpr auto kPackageBytes = "package_bytes";
 
 struct PackageSpec {
   std::string package_path;
@@ -27,7 +31,12 @@ struct PackageSpec {
   c10::DeviceIndex device_index;
 };
 
-PackageSpec parsePackageSpec(
+struct ProcessedState {
+  PackageSpec package_spec;
+  at::Tensor package_bytes;
+};
+
+c10::impl::GenericDict parseForwardState(
     const c10::impl::GenericDict& state,
     const char* state_name) {
   TORCH_CHECK(
@@ -46,14 +55,24 @@ PackageSpec parsePackageSpec(
       "AOTI backend ",
       state_name,
       " \"forward\" package spec must be a Dict[str, Any]");
-  const auto package_dict = forward.toGenericDict();
-  const std::unordered_set<std::string> expected_keys{
+  return forward.toGenericDict();
+}
+
+void validatePackageKeys(
+    const c10::impl::GenericDict& package_dict,
+    const char* state_name,
+    bool expect_package_bytes) {
+  std::unordered_set<std::string> expected_keys{
       kPackagePath, kModelName, kDeviceIndex};
+  if (expect_package_bytes) {
+    expected_keys.insert(kPackageBytes);
+  }
   TORCH_CHECK(
       package_dict.size() == expected_keys.size(),
       "AOTI backend ",
       state_name,
-      " \"forward\" package spec must contain exactly \"package_path\", \"model_name\", and \"device_index\"");
+      " \"forward\" package spec must contain exactly \"package_path\", \"model_name\", and \"device_index\"",
+      expect_package_bytes ? ", plus \"package_bytes\"" : "");
   for (const auto& item : package_dict) {
     TORCH_CHECK(
         item.key().isString() && expected_keys.count(item.key().toStringRef()),
@@ -61,7 +80,11 @@ PackageSpec parsePackageSpec(
         state_name,
         " \"forward\" package spec contains unsupported key");
   }
+}
 
+PackageSpec parsePackageMetadata(
+    const c10::impl::GenericDict& package_dict,
+    const char* state_name) {
   const auto& package_path = package_dict.at(kPackagePath);
   TORCH_CHECK(
       package_path.isString() && !package_path.toStringRef().empty(),
@@ -89,19 +112,111 @@ PackageSpec parsePackageSpec(
       static_cast<c10::DeviceIndex>(device_index.toInt())};
 }
 
-PackageSpec parseProcessedState(const c10::IValue& processed) {
+PackageSpec parsePackageSpec(
+    const c10::impl::GenericDict& state,
+    const char* state_name) {
+  const auto package_dict = parseForwardState(state, state_name);
+  validatePackageKeys(package_dict, state_name, false);
+  return parsePackageMetadata(package_dict, state_name);
+}
+
+ProcessedState parseProcessedState(const c10::IValue& processed) {
   TORCH_CHECK(
       processed.isGenericDict(),
       "AOTI backend processed state must be a Dict[str, Any]");
-  return parsePackageSpec(processed.toGenericDict(), "processed state");
+  const auto package_dict =
+      parseForwardState(processed.toGenericDict(), "processed state");
+  validatePackageKeys(package_dict, "processed state", true);
+  const auto& package_bytes_value = package_dict.at(kPackageBytes);
+  TORCH_CHECK(
+      package_bytes_value.isTensor(),
+      "AOTI backend processed state package_bytes must be a Tensor");
+  const auto package_bytes = package_bytes_value.toTensor();
+  TORCH_CHECK(
+      package_bytes.defined(),
+      "AOTI backend processed state package_bytes must be defined");
+  TORCH_CHECK(
+      package_bytes.device().is_cpu(),
+      "AOTI backend processed state package_bytes must be on CPU");
+  TORCH_CHECK(
+      package_bytes.scalar_type() == at::kByte,
+      "AOTI backend processed state package_bytes must have dtype uint8");
+  TORCH_CHECK(
+      package_bytes.dim() == 1,
+      "AOTI backend processed state package_bytes must be 1-D");
+  TORCH_CHECK(
+      package_bytes.is_contiguous(),
+      "AOTI backend processed state package_bytes must be contiguous");
+  TORCH_CHECK(
+      package_bytes.numel() > 0,
+      "AOTI backend processed state package_bytes must be nonempty");
+  return {parsePackageMetadata(package_dict, "processed state"), package_bytes};
+}
+
+at::Tensor readPackageBytes(const std::string& package_path) {
+  std::ifstream package_file(package_path, std::ios::binary | std::ios::ate);
+  TORCH_CHECK(
+      package_file.is_open(),
+      "AOTI backend failed to open package for preprocessing: ",
+      package_path);
+
+  const std::streamoff package_size = package_file.tellg();
+  TORCH_CHECK(
+      package_size >= 0,
+      "AOTI backend failed to determine package size during preprocessing: ",
+      package_path);
+  TORCH_CHECK(
+      package_size > 0,
+      "AOTI backend package must be nonempty during preprocessing: ",
+      package_path);
+  const auto package_size_unsigned = static_cast<std::uintmax_t>(package_size);
+  TORCH_CHECK(
+      package_size_unsigned <= static_cast<std::uintmax_t>(
+                                   std::numeric_limits<int64_t>::max()) &&
+          package_size_unsigned <=
+              static_cast<std::uintmax_t>(
+                  std::numeric_limits<std::streamsize>::max()),
+      "AOTI backend package is too large to embed during preprocessing: ",
+      package_path);
+
+  const auto package_size_int64 = static_cast<int64_t>(package_size);
+  auto package_bytes = at::empty(
+      {package_size_int64},
+      at::TensorOptions().device(at::kCPU).dtype(at::kByte));
+  package_file.seekg(0, std::ios::beg);
+  TORCH_CHECK(
+      package_file.good(),
+      "AOTI backend failed to seek package during preprocessing: ",
+      package_path);
+  package_file.read(
+      reinterpret_cast<char*>(package_bytes.data_ptr<uint8_t>()),
+      static_cast<std::streamsize>(package_size));
+  TORCH_CHECK(
+      package_file.gcount() == static_cast<std::streamsize>(package_size),
+      "AOTI backend failed to read package during preprocessing: ",
+      package_path);
+  return package_bytes;
 }
 
 c10::IValue preprocess(
     const Module&,
     const c10::Dict<c10::IValue, c10::IValue>& method_compile_spec,
     const BackendDebugHandleGenerator&) {
-  parsePackageSpec(method_compile_spec, "method compile spec");
-  return method_compile_spec;
+  const auto package_spec =
+      parsePackageSpec(method_compile_spec, "method compile spec");
+  c10::Dict<c10::IValue, c10::IValue> processed_package(
+      c10::StringType::get(), c10::AnyType::get());
+  processed_package.insert(kPackagePath, package_spec.package_path);
+  processed_package.insert(kModelName, package_spec.model_name);
+  processed_package.insert(
+      kDeviceIndex, static_cast<int64_t>(package_spec.device_index));
+  processed_package.insert(
+      kPackageBytes, readPackageBytes(package_spec.package_path));
+
+  c10::Dict<c10::IValue, c10::IValue> processed(
+      c10::StringType::get(), c10::AnyType::get());
+  processed.insert(kForward, processed_package);
+  return processed;
 }
 
 static auto backend = torch::jit::backend<AOTIBackend>(kBackendName);
@@ -121,7 +236,8 @@ c10::impl::GenericDict AOTIBackend::compile(
     c10::impl::GenericDict method_compile_spec) {
   const auto compile_spec =
       parsePackageSpec(method_compile_spec, "method compile spec");
-  const auto package_spec = parseProcessedState(processed);
+  const auto processed_state = parseProcessedState(processed);
+  const auto& package_spec = processed_state.package_spec;
   TORCH_CHECK(
       package_spec.package_path == compile_spec.package_path &&
           package_spec.model_name == compile_spec.model_name &&

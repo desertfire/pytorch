@@ -2,7 +2,9 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -146,8 +148,21 @@ c10::impl::GenericDict aotiMethodCompileSpec(
 
 c10::IValue aotiProcessedState(
     const std::string& package_path,
+    int64_t device_index,
+    c10::IValue package_bytes) {
+  auto processed = aotiMethodCompileSpec(package_path, device_index);
+  processed.at("forward").toGenericDict().insert(
+      "package_bytes", std::move(package_bytes));
+  return processed;
+}
+
+c10::IValue aotiProcessedState(
+    const std::string& package_path,
     int64_t device_index = -1) {
-  return aotiMethodCompileSpec(package_path, device_index);
+  return aotiProcessedState(
+      package_path,
+      device_index,
+      torch::ones({1}, torch::TensorOptions().dtype(torch::kUInt8)));
 }
 
 void test_aoti_backend(const std::string& device) {
@@ -207,17 +222,51 @@ void test_aoti_backend_lowering(const std::string& device) {
   auto compile_spec = aotiMethodCompileSpec(package_path);
   const std::vector<c10::IValue> inputs{input};
   std::stringstream serialized;
+  at::Tensor embedded_package_bytes;
   {
     auto lowered = torch::jit::detail::codegen_backend_module(
         "aoti",
         module,
         compile_spec,
         c10::DictType::create(c10::StringType::get(), c10::AnyType::get()));
+    const auto processed = lowered.attr("__loweredModule__")
+                               .toModule()
+                               .attr("__processed_module")
+                               .toGenericDict();
+    const auto package_bytes =
+        processed.at("forward").toGenericDict().at("package_bytes").toTensor();
+    std::ifstream package_file(package_path, std::ios::binary);
+    std::ostringstream package_contents;
+    package_contents << package_file.rdbuf();
+    const auto source_bytes = package_contents.str();
+    ASSERT_TRUE(package_file.good() || package_file.eof());
+    ASSERT_TRUE(package_bytes.defined());
+    ASSERT_TRUE(package_bytes.device().is_cpu());
+    ASSERT_EQ(package_bytes.scalar_type(), torch::kUInt8);
+    ASSERT_EQ(package_bytes.dim(), 1);
+    ASSERT_TRUE(package_bytes.is_contiguous());
+    ASSERT_EQ(package_bytes.numel(), source_bytes.size());
+    ASSERT_EQ(
+        std::memcmp(
+            package_bytes.data_ptr<uint8_t>(),
+            source_bytes.data(),
+            source_bytes.size()),
+        0);
+    embedded_package_bytes = package_bytes.clone();
     ASSERT_TRUE(torch::allclose(lowered.forward(inputs).toTensor(), expected));
     lowered.save(serialized);
   }
   serialized.seekg(0);
   auto loaded = torch::jit::load(serialized);
+  const auto loaded_package_bytes = loaded.attr("__loweredModule__")
+                                        .toModule()
+                                        .attr("__processed_module")
+                                        .toGenericDict()
+                                        .at("forward")
+                                        .toGenericDict()
+                                        .at("package_bytes")
+                                        .toTensor();
+  ASSERT_TRUE(loaded_package_bytes.equal(embedded_package_bytes));
   ASSERT_TRUE(torch::allclose(loaded.forward(inputs).toTensor(), expected));
 }
 
@@ -1413,6 +1462,29 @@ TEST(AOTIBackendValidationTest, RejectsMalformedCompileSpecDuringPreprocess) {
       "method compile spec \"forward\" package spec must contain exactly");
 }
 
+TEST(AOTIBackendValidationTest, RejectsMissingPackageDuringPreprocess) {
+  torch::jit::Module module("AOTIBackendMissingPackageModule");
+  module.define(R"(
+    def forward(self, x: Tensor) -> Tensor:
+        return x
+  )");
+  const auto package_path = (std::filesystem::path(
+                                 STRINGIZE(CMAKE_CURRENT_BINARY_DIR)) /
+                                 "aoti_backend_missing_package.pt2")
+                                 .string();
+  ASSERT_FALSE(std::filesystem::exists(package_path));
+
+  expectC10Error(
+      [&] {
+        torch::jit::detail::codegen_backend_module(
+            "aoti",
+            module,
+            aotiMethodCompileSpec(package_path),
+            c10::DictType::create(c10::StringType::get(), c10::AnyType::get()));
+      },
+      "failed to open package for preprocessing");
+}
+
 TEST(AOTIBackendValidationTest, RejectsMismatchedProcessedState) {
   torch::jit::aoti::AOTIBackend backend;
   expectC10Error(
@@ -1422,6 +1494,40 @@ TEST(AOTIBackendValidationTest, RejectsMismatchedProcessedState) {
             aotiMethodCompileSpec("compile_spec.pt2"));
       },
       "processed state must match the method compile spec");
+}
+
+TEST(AOTIBackendValidationTest, RejectsMalformedEmbeddedPackageBytes) {
+  torch::jit::aoti::AOTIBackend backend;
+  const auto compile_spec = aotiMethodCompileSpec("unused.pt2");
+  const auto check_package_bytes = [&](c10::IValue package_bytes,
+                                       const std::string& message) {
+    expectC10Error(
+        [&] {
+          backend.compile(
+              aotiProcessedState("unused.pt2", -1, std::move(package_bytes)),
+              compile_spec);
+        },
+        message);
+  };
+
+  check_package_bytes(c10::IValue(), "package_bytes must be a Tensor");
+  check_package_bytes(at::Tensor(), "package_bytes must be defined");
+  check_package_bytes(
+      torch::ones(
+          {1},
+          torch::TensorOptions().dtype(torch::kUInt8).device(torch::kMeta)),
+      "package_bytes must be on CPU");
+  check_package_bytes(torch::ones({1}), "package_bytes must have dtype uint8");
+  check_package_bytes(
+      torch::ones({1, 1}, torch::TensorOptions().dtype(torch::kUInt8)),
+      "package_bytes must be 1-D");
+  check_package_bytes(
+      torch::ones({2, 2}, torch::TensorOptions().dtype(torch::kUInt8))
+          .select(1, 0),
+      "package_bytes must be contiguous");
+  check_package_bytes(
+      torch::empty({0}, torch::TensorOptions().dtype(torch::kUInt8)),
+      "package_bytes must be nonempty");
 }
 
 TEST(AOTIBackendValidationTest, RejectsOutOfRangeDeviceBeforePackageLoad) {
