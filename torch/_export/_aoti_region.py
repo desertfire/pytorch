@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
 import torch
+from torch.export.graph_signature import InputKind, OutputKind
 
 
 _P = ParamSpec("_P")
@@ -38,6 +39,13 @@ class _AOTIRegionInvocation:
 class _AOTIRegionCapture:
     region: _AOTIRegion
     invocations: tuple[_AOTIRegionInvocation, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class _AOTIRegionExport:
+    region: _AOTIRegion
+    example_args: tuple[Any, ...]
+    exported_program: "torch.export.ExportedProgram"
 
 
 @typing.overload
@@ -343,3 +351,233 @@ def _capture_aoti_regions(
         )
         for region in regions
     )
+
+
+def _validate_abi_value(value: Any, annotation: Any, location: str) -> None:
+    if annotation is torch.Tensor:
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(
+                f"AOTI region {location} must be a torch.Tensor, "
+                f"but got {type(value)!r}"
+            )
+        return
+
+    element_types = typing.get_args(annotation)
+    if not isinstance(value, tuple):
+        raise TypeError(
+            f"AOTI region {location} must be a tuple with "
+            f"{len(element_types)} elements, but got {type(value)!r}"
+        )
+    if len(value) != len(element_types):
+        raise TypeError(
+            f"AOTI region {location} must be a tuple with "
+            f"{len(element_types)} elements, but got {len(value)}"
+        )
+    for index, (element, element_type) in enumerate(zip(value, element_types)):
+        _validate_abi_value(element, element_type, f"{location}[{index}]")
+
+
+def _abi_tensors(value: Any, path: str) -> tuple[tuple[str, torch.Tensor], ...]:
+    if isinstance(value, torch.Tensor):
+        return ((path, value),)
+    return tuple(
+        tensor
+        for index, element in enumerate(value)
+        for tensor in _abi_tensors(element, f"{path}[{index}]")
+    )
+
+
+def _invocation_input_tensors(
+    region: _AOTIRegion, normalized_args: tuple[Any, ...]
+) -> tuple[tuple[str, torch.Tensor], ...]:
+    return tuple(
+        tensor
+        for parameter, value in zip(
+            tuple(region.signature.parameters.values())[1:], normalized_args
+        )
+        for tensor in _abi_tensors(value, f"parameter '{parameter.name}'")
+    )
+
+
+def _validate_invocation_output(
+    region: _AOTIRegion,
+    normalized_args: tuple[Any, ...],
+    output: Any,
+    location: str,
+) -> None:
+    _validate_abi_value(
+        output,
+        region.signature.return_annotation,
+        f"{location} return",
+    )
+    input_tensors = _invocation_input_tensors(region, normalized_args)
+    for output_path, output_tensor in _abi_tensors(output, "return"):
+        for input_path, input_tensor in input_tensors:
+            if torch._C._overlaps(output_tensor, input_tensor):
+                raise ValueError(
+                    f"AOTI region {location} {output_path} aliases user input "
+                    f"{input_path}; outputs must have independent storage"
+                )
+
+
+def _tensor_static_metadata(tensor: torch.Tensor) -> tuple[tuple[str, Any], ...]:
+    metadata: list[tuple[str, Any]] = [
+        ("type", type(tensor)),
+        ("dtype", tensor.dtype),
+        ("device", tensor.device),
+        ("layout", tensor.layout),
+        ("shape", tuple(tensor.shape)),
+        ("requires_grad", tensor.requires_grad),
+    ]
+    if tensor.layout is torch.strided:
+        metadata.extend(
+            (
+                ("stride", tuple(tensor.stride())),
+                ("storage_offset", tensor.storage_offset()),
+            )
+        )
+    return tuple(metadata)
+
+
+def _validate_static_input_metadata(
+    region: _AOTIRegion,
+    reference_args: tuple[Any, ...],
+    normalized_args: tuple[Any, ...],
+    invocation_index: int,
+) -> None:
+    reference_tensors = _invocation_input_tensors(region, reference_args)
+    invocation_tensors = _invocation_input_tensors(region, normalized_args)
+    for (reference_path, reference), (path, tensor) in zip(
+        reference_tensors, invocation_tensors
+    ):
+        if path != reference_path:
+            raise AssertionError(
+                f"Input tensor paths differ: {reference_path} and {path}"
+            )
+        reference_metadata = dict(_tensor_static_metadata(reference))
+        for name, value in _tensor_static_metadata(tensor):
+            if value != reference_metadata[name]:
+                raise ValueError(
+                    f"AOTI region '{region.module_fqn}.forward' invocation "
+                    f"{invocation_index} {path} has {name} {value}, but the "
+                    f"first invocation uses {reference_metadata[name]}"
+                )
+
+
+def _normalize_aoti_region_invocation(
+    capture: _AOTIRegionCapture,
+    invocation: _AOTIRegionInvocation,
+    invocation_index: int,
+) -> tuple[Any, ...]:
+    region = capture.region
+    location = f"'{region.module_fqn}.forward' invocation {invocation_index}"
+    try:
+        bound = region.signature.bind(
+            region.module, *invocation.args, **dict(invocation.kwargs)
+        )
+    except TypeError as exc:
+        raise TypeError(f"Could not bind AOTI region {location}: {exc}") from exc
+
+    normalized_args = tuple(
+        bound.arguments[parameter.name]
+        for parameter in tuple(region.signature.parameters.values())[1:]
+    )
+    for parameter, value in zip(
+        tuple(region.signature.parameters.values())[1:], normalized_args
+    ):
+        _validate_abi_value(
+            value,
+            parameter.annotation,
+            f"{location} parameter '{parameter.name}'",
+        )
+    _validate_invocation_output(region, normalized_args, invocation.output, location)
+    return normalized_args
+
+
+def _validate_export_graph_signature(
+    region: _AOTIRegion, exported_program: "torch.export.ExportedProgram"
+) -> None:
+    graph_signature = exported_program.graph_signature
+    allowed_input_kinds = {
+        InputKind.USER_INPUT,
+        InputKind.PARAMETER,
+        InputKind.BUFFER,
+        InputKind.CONSTANT_TENSOR,
+        InputKind.CUSTOM_OBJ,
+    }
+    effects = [
+        f"input {spec.kind.name}"
+        for spec in graph_signature.input_specs
+        if spec.kind not in allowed_input_kinds
+    ]
+    effects.extend(
+        f"output {spec.kind.name}"
+        for spec in graph_signature.output_specs
+        if spec.kind is not OutputKind.USER_OUTPUT
+    )
+    if effects:
+        raise ValueError(
+            f"AOTI region '{region.module_fqn}.forward' export has unsupported "
+            f"boundary effects: {', '.join(effects)}"
+        )
+
+
+def _export_aoti_regions(
+    captures: tuple[_AOTIRegionCapture, ...],
+) -> tuple[_AOTIRegionExport, ...]:
+    """Strict-export captured regions using their first completed invocation."""
+    exports = []
+    for capture in captures:
+        region = capture.region
+        if not capture.invocations:
+            raise ValueError(
+                f"AOTI region '{region.module_fqn}.forward' has no completed "
+                "invocations to export"
+            )
+
+        normalized_invocations = tuple(
+            _normalize_aoti_region_invocation(capture, invocation, index)
+            for index, invocation in enumerate(capture.invocations, 1)
+        )
+        example_args = normalized_invocations[0]
+        try:
+            with torch.no_grad():
+                exported_program = torch.export.export(
+                    region.module, example_args, strict=True
+                )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to export AOTI region '{region.module_fqn}.forward': {exc}"
+            ) from exc
+
+        _validate_export_graph_signature(region, exported_program)
+        try:
+            exported_module = exported_program.module()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to prepare exported AOTI region "
+                f"'{region.module_fqn}.forward': {exc}"
+            ) from exc
+        for index, invocation_args in enumerate(normalized_invocations, 1):
+            if index > 1:
+                _validate_static_input_metadata(
+                    region, example_args, invocation_args, index
+                )
+            try:
+                with torch.no_grad():
+                    output = exported_module(*invocation_args)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"AOTI region '{region.module_fqn}.forward' invocation "
+                    f"{index} is incompatible with the exported program: {exc}"
+                ) from exc
+            _validate_invocation_output(
+                region,
+                invocation_args,
+                output,
+                f"'{region.module_fqn}.forward' exported invocation {index}",
+            )
+
+        exports.append(_AOTIRegionExport(region, example_args, exported_program))
+
+    return tuple(exports)

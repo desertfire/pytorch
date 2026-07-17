@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any
+from unittest.mock import Mock, patch
 
 import torch
 from torch._export._aoti_region import (
     _AOTI_REGION_SPEC_ATTR,
     _capture_aoti_regions,
     _discover_aoti_regions,
+    _export_aoti_regions,
     AOTIRegionSpec,
 )
+from torch.export.graph_signature import InputKind, OutputKind
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
@@ -433,6 +436,363 @@ class TestAOTIRegion(TestCase):
             captures[0].invocations = ()
         with self.assertRaisesRegex(dataclasses.FrozenInstanceError, "cannot assign"):
             captures[0].invocations[0].args = ()
+
+    def test_exports_with_normalized_positional_arguments(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                return x + y
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                return self.region(y=y, x=x)
+
+        x = torch.randn(3)
+        y = torch.randn(3)
+        exports = _export_aoti_regions(_capture_aoti_regions(Model(), (x, y)))
+
+        self.assertEqual(len(exports), 1)
+        self.assertEqual(exports[0].example_args, (x, y))
+        self.assertEqual(exports[0].exported_program.module()(x, y), x + y)
+        with self.assertRaisesRegex(dataclasses.FrozenInstanceError, "cannot assign"):
+            exports[0].example_args = ()
+
+    @parametrize("mismatch", ("arity", "type"))
+    def test_rejects_input_tuple_value_mismatch(self, mismatch: str) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(
+                self, values: tuple[torch.Tensor, torch.Tensor]
+            ) -> torch.Tensor:
+                return values[0]
+
+        x = torch.randn(2)
+        values = (x,) if mismatch == "arity" else [x, x]
+        captures = _capture_aoti_regions(torch.nn.Sequential(Region()), (values,))
+
+        with self.assertRaisesRegex(
+            TypeError, "'0.forward' invocation 1 parameter 'values'.*tuple with 2"
+        ):
+            _export_aoti_regions(captures)
+
+    def test_rejects_output_value_mismatch(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                return x
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.randn(2),)
+        )
+
+        with self.assertRaisesRegex(
+            TypeError, "'0.forward' invocation 1 return.*tuple with 2"
+        ):
+            _export_aoti_regions(captures)
+
+    @parametrize("alias", ("direct", "view"))
+    def test_rejects_output_aliasing_input(self, alias: str) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x if alias == "direct" else x.view_as(x)
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.randn(2),)
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "'0.forward' invocation 1 return aliases user input"
+        ):
+            _export_aoti_regions(captures)
+
+    def test_validates_multiple_compatible_invocations(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                return x * y
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                first = self.region(x, y=y)
+                second = self.region(y=x, x=y)
+                return first + second
+
+        x = torch.randn(4)
+        y = torch.randn(4)
+        exports = _export_aoti_regions(_capture_aoti_regions(Model(), (x, y)))
+
+        self.assertEqual(exports[0].example_args, (x, y))
+        self.assertEqual(exports[0].exported_program.module()(y, x), y * x)
+
+    def test_rejects_incompatible_additional_shapes(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                first = self.region(x)
+                self.region(x[:2])
+                return first
+
+        captures = _capture_aoti_regions(Model(), (torch.randn(4),))
+
+        with self.assertRaisesRegex(
+            ValueError, "'region.forward' invocation 2 parameter 'x' has shape"
+        ):
+            _export_aoti_regions(captures)
+
+    def test_rejects_additional_invocation_dtype_mismatch(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                first = self.region(x)
+                self.region(x.to(torch.float64))
+                return first
+
+        captures = _capture_aoti_regions(Model(), (torch.randn(4),))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "'region.forward' invocation 2 parameter 'x' has dtype torch.float64",
+        ):
+            _export_aoti_regions(captures)
+
+    def test_rejects_additional_invocation_requires_grad_mismatch(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if x.requires_grad:
+                    return x + 1
+                return x - 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                first = self.region(x)
+                self.region(x.detach())
+                return first
+
+        x = torch.randn(4, requires_grad=True)
+        captures = _capture_aoti_regions(Model(), (x,))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "'region.forward' invocation 2 parameter 'x' has requires_grad False",
+        ):
+            _export_aoti_regions(captures)
+
+    @parametrize("mismatch", ("stride", "storage_offset"))
+    def test_rejects_additional_invocation_view_metadata_mismatch(
+        self, mismatch: str
+    ) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if mismatch == "stride":
+                    first_input = x
+                    second_input = x.as_strided(x.shape, (1, 2))
+                else:
+                    first_input = x[:2]
+                    second_input = x[1:3]
+                first = self.region(first_input)
+                self.region(second_input)
+                return first
+
+        shape = (2, 3) if mismatch == "stride" else (3, 3)
+        captures = _capture_aoti_regions(Model(), (torch.randn(shape),))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            f"'region.forward' invocation 2 parameter 'x' has {mismatch}",
+        ):
+            _export_aoti_regions(captures)
+
+    def test_exports_under_calibration_grad_mode(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if torch.is_grad_enabled():
+                    return x.sin()
+                return x.cos()
+
+        x = torch.randn(3, requires_grad=True)
+        captures = _capture_aoti_regions(torch.nn.Sequential(Region()), (x,))
+        exports = _export_aoti_regions(captures)
+
+        self.assertEqual(captures[0].invocations[0].output, x.cos())
+        self.assertEqual(exports[0].exported_program.module()(x), x.cos())
+
+    def test_rejects_exported_output_structure_divergence(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if torch.compiler.is_compiling():
+                    return (x + 1,)
+                return x + 1
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.randn(2),)
+        )
+
+        with self.assertRaisesRegex(
+            TypeError, "exported invocation 1 return must be a torch.Tensor"
+        ):
+            _export_aoti_regions(captures)
+
+    def test_rejects_exported_output_alias_divergence(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if torch.compiler.is_compiling():
+                    return x.view_as(x)
+                return x.clone()
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.randn(2),)
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "exported invocation 1 return aliases user input"
+        ):
+            _export_aoti_regions(captures)
+
+    @parametrize("mutation", ("input", "buffer"))
+    def test_rejects_exported_mutations(self, mutation: str) -> None:
+        class InputMutation(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                x.add_(1)
+                return x + 0
+
+        class BufferMutation(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("value", torch.ones(2))
+
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.value.add_(1)
+                return x + self.value
+
+        region = InputMutation() if mutation == "input" else BufferMutation()
+        captures = _capture_aoti_regions(torch.nn.Sequential(region), (torch.randn(2),))
+
+        with self.assertRaisesRegex(
+            ValueError, "unsupported boundary effects.*MUTATION"
+        ):
+            _export_aoti_regions(captures)
+
+    @parametrize(
+        "effect_kind",
+        (InputKind.TOKEN, OutputKind.PARAMETER_MUTATION),
+    )
+    def test_rejects_other_export_boundary_effects(self, effect_kind: Any) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.randn(2),)
+        )
+        exported_program = Mock()
+        if isinstance(effect_kind, InputKind):
+            exported_program.graph_signature.input_specs = (Mock(kind=effect_kind),)
+            exported_program.graph_signature.output_specs = ()
+        else:
+            exported_program.graph_signature.input_specs = ()
+            exported_program.graph_signature.output_specs = (Mock(kind=effect_kind),)
+
+        with patch("torch.export.export", return_value=exported_program):
+            with self.assertRaisesRegex(
+                ValueError, f"unsupported boundary effects.*{effect_kind.name}"
+            ):
+                _export_aoti_regions(captures)
+
+    def test_allows_lifted_custom_objects_and_calls_strict_export(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                return x + y
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                return self.region(y=y, x=x)
+
+        model = Model()
+        x = torch.randn(2)
+        y = torch.randn(2)
+        captures = _capture_aoti_regions(model, (x, y))
+        exported_program = Mock()
+        exported_program.graph_signature.input_specs = (
+            Mock(kind=InputKind.CUSTOM_OBJ),
+        )
+        exported_program.graph_signature.output_specs = (
+            Mock(kind=OutputKind.USER_OUTPUT),
+        )
+        exported_program.module.return_value = lambda x, y: x + y
+
+        with patch("torch.export.export", return_value=exported_program) as export:
+            exports = _export_aoti_regions(captures)
+
+        export.assert_called_once_with(model.region, (x, y), strict=True)
+        self.assertIs(exports[0].exported_program, exported_program)
+
+    def test_preserves_strict_export_failure_context(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if x.sum() > 0:
+                    return x + 1
+                return x - 1
+
+        captures = _capture_aoti_regions(
+            torch.nn.Sequential(Region()), (torch.ones(2),)
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError, "Failed to export AOTI region '0.forward'"
+        ) as error:
+            _export_aoti_regions(captures)
+        self.assertIsNotNone(error.exception.__cause__)
 
 
 instantiate_parametrized_tests(TestAOTIRegion)
