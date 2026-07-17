@@ -55,6 +55,13 @@ class _AOTIRegionStub:
     source: str
 
 
+@dataclasses.dataclass(frozen=True)
+class _CompiledAOTIRegion:
+    region: _AOTIRegion
+    package_path: str
+    module: "torch.jit.RecursiveScriptModule"
+
+
 @typing.overload
 def aoti_region(fn: Callable[_P, _R]) -> Callable[_P, _R]: ...
 
@@ -700,3 +707,30 @@ def _lower_aoti_region_stub(
     return torch._C._jit_to_backend(  # pyrefly: ignore[missing-attribute]
         "aoti", stub.module, method_compile_spec
     )
+
+
+def _compile_aoti_region(region_export: _AOTIRegionExport) -> _CompiledAOTIRegion:
+    if not isinstance(region_export, _AOTIRegionExport):
+        raise TypeError(
+            f"Expected an _AOTIRegionExport, but got {type(region_export)!r}"
+        )
+
+    stub = _create_aoti_region_stub(region_export)
+    schema = stub.module.forward.schema  # pyrefly: ignore[missing-attribute]
+    _validate_aoti_region_stub_schema(schema)
+
+    import torch._inductor
+
+    package_path = torch._inductor.aoti_compile_and_package(
+        region_export.exported_program
+    )
+    if not isinstance(package_path, str):
+        raise TypeError(
+            "AOTI compiler must return a package path string, "
+            f"but got {type(package_path)!r}"
+        )
+    if not package_path:
+        raise ValueError("AOTI compiler returned an empty package path")
+
+    module = _lower_aoti_region_stub(stub, package_path)
+    return _CompiledAOTIRegion(region_export.region, package_path, module)

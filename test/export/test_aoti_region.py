@@ -9,8 +9,10 @@ from unittest.mock import Mock, patch
 import torch
 from torch._export._aoti_region import (
     _AOTI_REGION_SPEC_ATTR,
+    _AOTIRegionExport,
     _AOTIRegionStub,
     _capture_aoti_regions,
+    _compile_aoti_region,
     _create_aoti_region_stub,
     _discover_aoti_regions,
     _export_aoti_regions,
@@ -1024,6 +1026,126 @@ class TestAOTIRegion(TestCase):
                 _lower_aoti_region_stub(Mock(), "/tmp/region.pt2")
 
         to_backend.assert_not_called()
+
+    def test_compiles_and_lowers_one_aoti_region(self) -> None:
+        region = Mock()
+        exported_program = Mock()
+        region_export = _AOTIRegionExport(region, (), exported_program)
+        stub = _schema_stub(
+            "def forward(self, value: Tensor) -> Tensor:\n    assert False\n"
+        )
+        lowered = Mock()
+        calls = []
+
+        def validate(schema: torch._C.FunctionSchema) -> None:
+            self.assertIs(schema, stub.module.forward.schema)
+            calls.append("validate")
+
+        def compile(program: Any) -> str:
+            self.assertIs(program, exported_program)
+            calls.append("compile")
+            return "/tmp/compiled-region.pt2"
+
+        def lower(received_stub: _AOTIRegionStub, package_path: str) -> Any:
+            self.assertIs(received_stub, stub)
+            self.assertEqual(package_path, "/tmp/compiled-region.pt2")
+            calls.append("lower")
+            return lowered
+
+        with (
+            patch(
+                "torch._export._aoti_region._create_aoti_region_stub",
+                return_value=stub,
+            ),
+            patch(
+                "torch._export._aoti_region._validate_aoti_region_stub_schema",
+                side_effect=validate,
+            ),
+            patch("torch._inductor.aoti_compile_and_package", side_effect=compile),
+            patch(
+                "torch._export._aoti_region._lower_aoti_region_stub",
+                side_effect=lower,
+            ),
+        ):
+            result = _compile_aoti_region(region_export)
+
+        self.assertEqual(calls, ["validate", "compile", "lower"])
+        self.assertIs(result.region, region)
+        self.assertEqual(result.package_path, "/tmp/compiled-region.pt2")
+        self.assertIs(result.module, lowered)
+        with self.assertRaisesRegex(dataclasses.FrozenInstanceError, "cannot assign"):
+            result.package_path = ""
+
+    def test_validates_schema_before_aoti_compilation(self) -> None:
+        region_export = _AOTIRegionExport(Mock(), (), Mock())
+        stub = _schema_stub(
+            "def forward(self, values: Tuple[Tensor, Tensor]) -> Tensor:\n"
+            "    assert False\n"
+        )
+
+        with (
+            patch(
+                "torch._export._aoti_region._create_aoti_region_stub",
+                return_value=stub,
+            ),
+            patch("torch._inductor.aoti_compile_and_package") as compile,
+            patch("torch._export._aoti_region._lower_aoti_region_stub") as lower,
+        ):
+            with self.assertRaisesRegex(TypeError, "forward arguments must be Tensor"):
+                _compile_aoti_region(region_export)
+
+        compile.assert_not_called()
+        lower.assert_not_called()
+
+    def test_aoti_compiler_failure_propagates(self) -> None:
+        error = RuntimeError("AOTI compilation failed")
+        region_export = _AOTIRegionExport(Mock(), (), Mock())
+        stub = _schema_stub("def forward(self) -> Tensor:\n    assert False\n")
+
+        with (
+            patch(
+                "torch._export._aoti_region._create_aoti_region_stub",
+                return_value=stub,
+            ),
+            patch("torch._inductor.aoti_compile_and_package", side_effect=error),
+            patch("torch._export._aoti_region._lower_aoti_region_stub") as lower,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "AOTI compilation failed") as cm:
+                _compile_aoti_region(region_export)
+
+        self.assertIs(cm.exception, error)
+        lower.assert_not_called()
+
+    @parametrize("package_path", (None, 1, False, ""))
+    def test_rejects_invalid_aoti_compiler_package_path(
+        self, package_path: Any
+    ) -> None:
+        region_export = _AOTIRegionExport(Mock(), (), Mock())
+        stub = _schema_stub("def forward(self) -> Tensor:\n    assert False\n")
+        error = "package path string" if package_path != "" else "empty package path"
+
+        with (
+            patch(
+                "torch._export._aoti_region._create_aoti_region_stub",
+                return_value=stub,
+            ),
+            patch(
+                "torch._inductor.aoti_compile_and_package",
+                return_value=package_path,
+            ),
+            patch("torch._export._aoti_region._lower_aoti_region_stub") as lower,
+        ):
+            with self.assertRaisesRegex((TypeError, ValueError), error):
+                _compile_aoti_region(region_export)
+
+        lower.assert_not_called()
+
+    def test_rejects_non_aoti_region_export_compilation(self) -> None:
+        with patch("torch._inductor.aoti_compile_and_package") as compile:
+            with self.assertRaisesRegex(TypeError, "Expected an _AOTIRegionExport"):
+                _compile_aoti_region(Mock())
+
+        compile.assert_not_called()
 
     @parametrize("unsupported", ("positional_only", "self_name"))
     def test_rejects_unrepresentable_stub_signature(self, unsupported: str) -> None:
