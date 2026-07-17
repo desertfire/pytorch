@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import inspect
 import typing
@@ -734,3 +735,105 @@ def _compile_aoti_region(region_export: _AOTIRegionExport) -> _CompiledAOTIRegio
 
     module = _lower_aoti_region_stub(stub, package_path)
     return _CompiledAOTIRegion(region_export.region, package_path, module)
+
+
+def _substitute_compiled_aoti_regions(
+    root: torch.nn.Module,
+    compiled_regions: tuple[_CompiledAOTIRegion, ...],
+) -> torch.nn.Module:
+    """Copy ``root`` and replace its compiled AOTI region submodules."""
+    if not isinstance(root, torch.nn.Module):
+        raise TypeError(f"Expected an nn.Module, but got {type(root)!r}")
+    if not isinstance(compiled_regions, tuple):
+        raise TypeError(
+            "compiled_regions must be a tuple of _CompiledAOTIRegion records"
+        )
+
+    paths = set()
+    for index, compiled in enumerate(compiled_regions):
+        if not isinstance(compiled, _CompiledAOTIRegion):
+            raise TypeError(
+                f"compiled_regions[{index}] must be a _CompiledAOTIRegion, "
+                f"but got {type(compiled)!r}"
+            )
+        path = compiled.region.module_fqn
+        if not isinstance(path, str) or not path:
+            raise ValueError(
+                f"compiled_regions[{index}] must have a nonempty module path"
+            )
+        if path in paths:
+            raise ValueError(f"Duplicate compiled AOTI region path '{path}'")
+        for other_path in paths:
+            overlap = path.startswith(other_path + ".") or other_path.startswith(
+                path + "."
+            )
+            if overlap:
+                raise ValueError(
+                    f"Compiled AOTI region paths '{other_path}' and '{path}' overlap"
+                )
+        paths.add(path)
+        try:
+            original = root.get_submodule(path)
+        except AttributeError as exc:
+            raise ValueError(
+                f"Compiled AOTI region path '{path}' does not identify a submodule "
+                "of the root module"
+            ) from exc
+        if original is not compiled.region.module:
+            raise ValueError(
+                f"Compiled AOTI region '{path}' does not match the root submodule"
+            )
+        if not isinstance(compiled.module, torch.jit.RecursiveScriptModule):
+            raise TypeError(
+                f"Compiled AOTI region '{path}' must be a "
+                "torch.jit.RecursiveScriptModule"
+            )
+
+    try:
+        result = copy.deepcopy(root)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to copy {type(root).__name__} before substituting compiled "
+            f"AOTI regions: {exc}"
+        ) from exc
+
+    if not isinstance(result, torch.nn.Module):
+        raise RuntimeError(
+            f"Failed to copy {type(root).__name__} before substituting compiled "
+            f"AOTI regions: __deepcopy__ returned {type(result)!r}"
+        )
+    if result is root:
+        raise RuntimeError(
+            f"Failed to copy {type(root).__name__} before substituting compiled "
+            "AOTI regions: __deepcopy__ returned the original module"
+        )
+
+    for compiled in compiled_regions:
+        path = compiled.region.module_fqn
+        parent_path = path.rpartition(".")[0]
+        parent_name = parent_path or "<root>"
+        original_parent = root.get_submodule(parent_path)
+        try:
+            copied_parent = result.get_submodule(parent_path)
+            result.get_submodule(path)
+        except AttributeError as exc:
+            raise RuntimeError(
+                f"Failed to copy {type(root).__name__} before substituting compiled "
+                f"AOTI region '{path}': the copied module hierarchy is incomplete"
+            ) from exc
+        if copied_parent is original_parent:
+            raise RuntimeError(
+                f"Failed to copy {type(root).__name__} before substituting compiled "
+                f"AOTI region '{path}': copied parent '{parent_name}' is shared "
+                "with the original module"
+            )
+        if copied_parent._modules is original_parent._modules:
+            raise RuntimeError(
+                f"Failed to copy {type(root).__name__} before substituting compiled "
+                f"AOTI region '{path}': copied parent '{parent_name}' shares its "
+                "submodule registry with the original module"
+            )
+
+    for compiled in compiled_regions:
+        result.set_submodule(compiled.region.module_fqn, compiled.module, strict=True)
+    return result

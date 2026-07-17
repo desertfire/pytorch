@@ -13,11 +13,13 @@ from torch._export._aoti_region import (
     _AOTIRegionStub,
     _capture_aoti_regions,
     _compile_aoti_region,
+    _CompiledAOTIRegion,
     _create_aoti_region_stub,
     _discover_aoti_regions,
     _export_aoti_regions,
     _lower_aoti_region_stub,
     _render_aoti_region_stub_source,
+    _substitute_compiled_aoti_regions,
     AOTIRegionSpec,
 )
 from torch.export.graph_signature import InputKind, OutputKind
@@ -1146,6 +1148,152 @@ class TestAOTIRegion(TestCase):
                 _compile_aoti_region(Mock())
 
         compile.assert_not_called()
+
+    def test_substitutes_compiled_regions_in_a_copy(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.nested = torch.nn.Sequential(Region())
+                self.second = Region()
+                self.other = torch.nn.Linear(2, 2)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.other(self.second(self.nested(x)))
+
+        model = Model()
+        regions = _discover_aoti_regions(model)
+        lowered = tuple(torch.jit.script(torch.nn.Identity()) for _ in regions)
+        compiled = tuple(
+            _CompiledAOTIRegion(region, f"/tmp/region-{index}.pt2", module)
+            for index, (region, module) in enumerate(zip(regions, lowered))
+        )
+
+        result = _substitute_compiled_aoti_regions(model, compiled)
+
+        self.assertIsNot(result, model)
+        for region, module in zip(regions, lowered):
+            self.assertIs(model.get_submodule(region.module_fqn), region.module)
+            self.assertIs(result.get_submodule(region.module_fqn), module)
+        self.assertIsNot(result.nested, model.nested)
+        self.assertIsNot(result.other, model.other)
+        self.assertEqual(result.other.state_dict(), model.other.state_dict())
+        x = torch.randn(2)
+        scripted = torch.jit.script(result)
+        self.assertEqual(scripted(x), result(x))
+
+    @parametrize("invalid", ("empty", "missing", "stale", "duplicate"))
+    def test_rejects_invalid_compiled_region_paths(self, invalid: str) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        model = torch.nn.Sequential(Region())
+        region = _discover_aoti_regions(model)[0]
+        if invalid == "empty":
+            region = dataclasses.replace(region, module_fqn="")
+            error = "nonempty module path"
+        elif invalid == "missing":
+            region = dataclasses.replace(region, module_fqn="missing")
+            error = "does not identify a submodule"
+        elif invalid == "stale":
+            region = dataclasses.replace(region, module=torch.nn.Identity())
+            error = "does not match the root submodule"
+        else:
+            error = "Duplicate compiled AOTI region path '0'"
+        compiled = _CompiledAOTIRegion(
+            region, "/tmp/region.pt2", torch.jit.script(torch.nn.Identity())
+        )
+        records = (compiled, compiled) if invalid == "duplicate" else (compiled,)
+
+        with self.assertRaisesRegex(ValueError, error):
+            _substitute_compiled_aoti_regions(model, records)
+
+        self.assertIs(model[0], _discover_aoti_regions(model)[0].module)
+
+    def test_rejects_overlapping_compiled_region_paths(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        model = torch.nn.Sequential(torch.nn.Sequential(Region()))
+        child = _discover_aoti_regions(model)[0]
+        parent = dataclasses.replace(child, module_fqn="0", module=model[0])
+        lowered = torch.jit.script(torch.nn.Identity())
+        compiled = (
+            _CompiledAOTIRegion(parent, "/tmp/parent.pt2", lowered),
+            _CompiledAOTIRegion(child, "/tmp/child.pt2", lowered),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "Compiled AOTI region paths '0' and '0.0' overlap"
+        ):
+            _substitute_compiled_aoti_regions(model, compiled)
+
+        self.assertIs(model.get_submodule("0.0"), child.module)
+
+    def test_reports_module_copy_failure(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class UncopyableModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.region = Region()
+
+            def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+                raise RuntimeError("copy disabled")
+
+        model = UncopyableModel()
+        region = _discover_aoti_regions(model)[0]
+        compiled = _CompiledAOTIRegion(
+            region, "/tmp/region.pt2", torch.jit.script(torch.nn.Identity())
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Failed to copy UncopyableModel.*copy disabled",
+        ) as error:
+            _substitute_compiled_aoti_regions(model, (compiled,))
+
+        self.assertIsInstance(error.exception.__cause__, RuntimeError)
+
+    def test_rejects_copy_that_shares_region_parent(self) -> None:
+        class Region(torch.nn.Module):
+            @torch._export.aoti_region
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + 1
+
+        class SharedParentModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.nested = torch.nn.Sequential(Region())
+
+            def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+                result = type(self)()
+                result.nested = self.nested
+                return result
+
+        model = SharedParentModel()
+        region = _discover_aoti_regions(model)[0]
+        compiled = _CompiledAOTIRegion(
+            region, "/tmp/region.pt2", torch.jit.script(torch.nn.Identity())
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError, "copied parent 'nested' is shared with the original module"
+        ):
+            _substitute_compiled_aoti_regions(model, (compiled,))
+
+        self.assertIs(model.get_submodule("nested.0"), region.module)
 
     @parametrize("unsupported", ("positional_only", "self_name"))
     def test_rejects_unrepresentable_stub_signature(self, unsupported: str) -> None:
