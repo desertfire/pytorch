@@ -27,6 +27,15 @@ from torch.testing._internal.common_utils import (
 )
 
 
+def _schema_stub(source: str) -> _AOTIRegionStub:
+    class SchemaModule(torch.jit.ScriptModule):
+        def __init__(self) -> None:
+            super().__init__()
+            self.define(source)
+
+    return _AOTIRegionStub(SchemaModule(), source)
+
+
 class TestAOTIRegion(TestCase):
     def test_discovers_nested_regions_in_module_order(self) -> None:
         class Region(torch.nn.Module):
@@ -897,9 +906,17 @@ class TestAOTIRegion(TestCase):
         self.assertEqual(str(tensor_type), "Tensor")
         self.assertEqual(str(tuple_type), "Tuple[Tensor, Tensor]")
 
-    def test_lowers_stub_with_aoti_package_spec(self) -> None:
-        module = Mock()
-        stub = _AOTIRegionStub(module, "stub source")
+    @parametrize(
+        "source",
+        (
+            "def forward(self) -> Tensor:\n    assert False\n",
+            "def forward(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:\n    assert False\n",
+        ),
+    )
+    def test_lowers_supported_stub_schema_with_aoti_package_spec(
+        self, source: str
+    ) -> None:
+        stub = _schema_stub(source)
         lowered = Mock()
 
         with patch("torch._C._jit_to_backend", return_value=lowered) as to_backend:
@@ -908,7 +925,7 @@ class TestAOTIRegion(TestCase):
         self.assertIs(result, lowered)
         to_backend.assert_called_once_with(
             "aoti",
-            module,
+            stub.module,
             {
                 "forward": {
                     "package_path": "/tmp/region.pt2",
@@ -917,6 +934,70 @@ class TestAOTIRegion(TestCase):
                 }
             },
         )
+
+    @parametrize(
+        "input_type",
+        (
+            "Tuple[Tensor, Tensor]",
+            "Tuple[Tensor, Tuple[Tensor, Tensor]]",
+            "List[Tensor]",
+            "int",
+        ),
+    )
+    def test_rejects_unsupported_aoti_backend_input_schema(
+        self, input_type: str
+    ) -> None:
+        stub = _schema_stub(
+            f"def forward(self, value: {input_type}) -> Tensor:\n    assert False\n"
+        )
+
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(
+                TypeError, "forward arguments must be Tensor.*argument 'value'"
+            ):
+                _lower_aoti_region_stub(stub, "/tmp/region.pt2")
+
+        to_backend.assert_not_called()
+
+    @parametrize(
+        "output_type",
+        (
+            "Tuple[()]",
+            "Tuple[Tensor, Tuple[Tensor, Tensor]]",
+            "Tuple[Tensor, int]",
+            "List[Tensor]",
+            "int",
+        ),
+    )
+    def test_rejects_unsupported_aoti_backend_output_schema(
+        self, output_type: str
+    ) -> None:
+        stub = _schema_stub(
+            f"def forward(self, value: Tensor) -> {output_type}:\n    assert False\n"
+        )
+
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(
+                TypeError, "return must be Tensor or a nonempty flat tuple of Tensor"
+            ):
+                _lower_aoti_region_stub(stub, "/tmp/region.pt2")
+
+        to_backend.assert_not_called()
+
+    @parametrize("return_count", (0, 2))
+    def test_rejects_malformed_aoti_backend_return_arity(
+        self, return_count: int
+    ) -> None:
+        schema = Mock(arguments=[Mock()], returns=[Mock()] * return_count)
+        stub = _AOTIRegionStub(Mock(forward=Mock(schema=schema)), "stub source")
+
+        with patch("torch._C._jit_to_backend") as to_backend:
+            with self.assertRaisesRegex(
+                TypeError, f"exactly one return, but has {return_count}"
+            ):
+                _lower_aoti_region_stub(stub, "/tmp/region.pt2")
+
+        to_backend.assert_not_called()
 
     @parametrize("package_path", (None, 1, False))
     def test_rejects_non_string_aoti_package_path(self, package_path: Any) -> None:

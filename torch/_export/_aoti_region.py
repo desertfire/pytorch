@@ -649,6 +649,33 @@ def _create_aoti_region_stub(region_export: _AOTIRegionExport) -> _AOTIRegionStu
     return _AOTIRegionStub(SchemaModule(), source)
 
 
+def _validate_aoti_region_stub_schema(schema: torch._C.FunctionSchema) -> None:
+    for argument in schema.arguments[1:]:
+        if argument.type.kind() != "TensorType":
+            raise TypeError(
+                "AOTI backend forward arguments must be Tensor; "
+                f"argument '{argument.name}' has type {argument.type}"
+            )
+
+    if len(schema.returns) != 1:
+        raise TypeError(
+            "AOTI backend forward schema must have exactly one return, "
+            f"but has {len(schema.returns)}"
+        )
+
+    output_type = schema.returns[0].type
+    if output_type.kind() == "TensorType":
+        return
+    if output_type.kind() == "TupleType":
+        elements = typing.cast(torch._C.TupleType, output_type).elements()
+        if elements and all(element.kind() == "TensorType" for element in elements):
+            return
+    raise TypeError(
+        "AOTI backend forward return must be Tensor or a nonempty flat tuple "
+        f"of Tensor; got {output_type}"
+    )
+
+
 def _lower_aoti_region_stub(
     stub: _AOTIRegionStub, package_path: str
 ) -> "torch.jit.RecursiveScriptModule":
@@ -661,6 +688,8 @@ def _lower_aoti_region_stub(
     if not package_path:
         raise ValueError("package_path must be a non-empty string")
 
+    schema = stub.module.forward.schema  # pyrefly: ignore[missing-attribute]
+    _validate_aoti_region_stub_schema(schema)
     method_compile_spec = {
         "forward": {
             "package_path": package_path,
