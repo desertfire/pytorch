@@ -266,6 +266,8 @@ def _capture_aoti_regions(
 ) -> tuple[_AOTIRegionCapture, ...]:
     """Run eager calibration and capture every completed region invocation."""
     regions = _discover_aoti_regions(root)
+    if not regions:
+        return ()
     kwargs = {} if kwargs is None else kwargs
 
     global_hook_kinds = []
@@ -837,3 +839,22 @@ def _substitute_compiled_aoti_regions(
     for compiled in compiled_regions:
         result.set_submodule(compiled.region.module_fqn, compiled.module, strict=True)
     return result
+
+
+def _compile_aoti_regions(
+    root: torch.nn.Module,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any] | None = None,
+) -> "torch.jit.RecursiveScriptModule":
+    """Compile annotated regions and recursively script a copied parent module.
+
+    Modules without annotated regions skip calibration, are copied, and are
+    recursively scripted through the remaining pipeline.
+    """
+    captures = _capture_aoti_regions(root, args, kwargs)
+    region_exports = _export_aoti_regions(captures)
+    compiled_regions = tuple(
+        _compile_aoti_region(region_export) for region_export in region_exports
+    )
+    substituted = _substitute_compiled_aoti_regions(root, compiled_regions)
+    return torch.jit.script(substituted)

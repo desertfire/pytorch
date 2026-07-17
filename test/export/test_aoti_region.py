@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import call, Mock, patch
 
 import torch
 from torch._export._aoti_region import (
@@ -13,6 +13,7 @@ from torch._export._aoti_region import (
     _AOTIRegionStub,
     _capture_aoti_regions,
     _compile_aoti_region,
+    _compile_aoti_regions,
     _CompiledAOTIRegion,
     _create_aoti_region_stub,
     _discover_aoti_regions,
@@ -1294,6 +1295,133 @@ class TestAOTIRegion(TestCase):
             _substitute_compiled_aoti_regions(model, (compiled,))
 
         self.assertIs(model.get_submodule("nested.0"), region.module)
+
+    def test_compiles_aoti_regions_and_scripts_parent_in_order(self) -> None:
+        root = Mock()
+        args = (Mock(), Mock())
+        kwargs = {"scale": Mock()}
+        captures = (Mock(), Mock())
+        region_exports = (Mock(), Mock())
+        compiled_regions = (Mock(), Mock())
+        substituted = Mock()
+        scripted = Mock()
+        events = []
+
+        def capture(
+            received_root: Any, received_args: Any, received_kwargs: Any
+        ) -> Any:
+            events.append("capture")
+            return captures
+
+        def export(received_captures: Any) -> Any:
+            events.append("export")
+            return region_exports
+
+        def compile(region_export: Any) -> Any:
+            index = region_exports.index(region_export)
+            events.append(f"compile:{index}")
+            return compiled_regions[index]
+
+        def substitute(received_root: Any, received_compiled: Any) -> Any:
+            events.append("substitute")
+            return substituted
+
+        def script(received_module: Any) -> Any:
+            events.append("script")
+            return scripted
+
+        with (
+            patch(
+                "torch._export._aoti_region._capture_aoti_regions",
+                side_effect=capture,
+            ) as capture_mock,
+            patch(
+                "torch._export._aoti_region._export_aoti_regions",
+                side_effect=export,
+            ) as export_mock,
+            patch(
+                "torch._export._aoti_region._compile_aoti_region",
+                side_effect=compile,
+            ) as compile_mock,
+            patch(
+                "torch._export._aoti_region._substitute_compiled_aoti_regions",
+                side_effect=substitute,
+            ) as substitute_mock,
+            patch("torch.jit.script", side_effect=script) as script_mock,
+        ):
+            result = _compile_aoti_regions(root, args, kwargs)
+
+        self.assertEqual(
+            events,
+            ["capture", "export", "compile:0", "compile:1", "substitute", "script"],
+        )
+        capture_mock.assert_called_once_with(root, args, kwargs)
+        export_mock.assert_called_once_with(captures)
+        self.assertEqual(
+            compile_mock.call_args_list,
+            [call(region_exports[0]), call(region_exports[1])],
+        )
+        substitute_mock.assert_called_once_with(root, compiled_regions)
+        script_mock.assert_called_once_with(substituted)
+        self.assertIs(result, scripted)
+
+    def test_scripts_parent_when_there_are_no_aoti_regions(self) -> None:
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("calls", torch.zeros((), dtype=torch.int64))
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.calls.add_(1)
+                return x + self.calls
+
+        model = Model()
+        x = torch.randn(2)
+
+        result = _compile_aoti_regions(model, (x,))
+
+        self.assertIsInstance(result, torch.jit.RecursiveScriptModule)
+        self.assertEqual(model.calls, torch.zeros_like(model.calls))
+        self.assertEqual(result(x), x + 1)
+        self.assertEqual(model.calls, torch.zeros_like(model.calls))
+        self.assertEqual(result.calls, torch.ones_like(result.calls))
+
+    def test_region_compile_failure_stops_parent_compilation(self) -> None:
+        root = Mock()
+        region_exports = (Mock(), Mock(), Mock())
+        first_compiled = Mock()
+        error = RuntimeError("region compilation failed")
+
+        with (
+            patch(
+                "torch._export._aoti_region._capture_aoti_regions",
+                return_value=(Mock(),),
+            ),
+            patch(
+                "torch._export._aoti_region._export_aoti_regions",
+                return_value=region_exports,
+            ),
+            patch(
+                "torch._export._aoti_region._compile_aoti_region",
+                side_effect=(first_compiled, error),
+            ) as compile,
+            patch(
+                "torch._export._aoti_region._substitute_compiled_aoti_regions"
+            ) as substitute,
+            patch("torch.jit.script") as script,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "region compilation failed"
+            ) as cm:
+                _compile_aoti_regions(root, ())
+
+        self.assertIs(cm.exception, error)
+        self.assertEqual(
+            compile.call_args_list,
+            [call(region_exports[0]), call(region_exports[1])],
+        )
+        substitute.assert_not_called()
+        script.assert_not_called()
 
     @parametrize("unsupported", ("positional_only", "self_name"))
     def test_rejects_unrepresentable_stub_signature(self, unsupported: str) -> None:
