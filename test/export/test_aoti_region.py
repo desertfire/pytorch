@@ -2085,6 +2085,81 @@ class TestAOTIRegion(TestCase):
         self.assertEqual(loaded(x), x * 2 + 4)
         self.assertEqual(loaded(alternate), alternate - 1)
 
+    def test_compiles_bound_function_inside_control_flow_parent(self) -> None:
+        @torch._export.aoti_region
+        def fast(x: torch.Tensor) -> torch.Tensor:
+            return x * 2 + 1
+
+        class CompiledFast(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x * 5 - 2
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.fast = torch._export.bind_aoti_region(fast)
+                self.register_buffer("bias", torch.tensor(3.0))
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                if x.sum() > 0:
+                    value = self.fast(x)
+                else:
+                    value = x - 4
+                return value + self.bias
+
+        model = Model()
+        original_fast = model.fast
+        replacement = torch.jit.script(CompiledFast())
+        received_programs: list[torch.export.ExportedProgram] = []
+
+        def compile_package(program: torch.export.ExportedProgram) -> str:
+            received_programs.append(program)
+            return "/tmp/bound_function.pt2"
+
+        def lower(stub: _AOTIRegionStub, package_path: str) -> Any:
+            self.assertEqual(package_path, "/tmp/bound_function.pt2")
+            schema = stub.module.forward.schema
+            self.assertEqual(
+                [str(argument.type) for argument in schema.arguments[1:]], ["Tensor"]
+            )
+            self.assertEqual(
+                [str(result.type) for result in schema.returns], ["Tensor"]
+            )
+            return replacement
+
+        x = torch.tensor([1.0, 2.0])
+        with (
+            patch(
+                "torch._inductor.aoti_compile_and_package",
+                side_effect=compile_package,
+            ) as compile_mock,
+            patch(
+                "torch._export._aoti_region._lower_aoti_region_stub",
+                side_effect=lower,
+            ) as lower_mock,
+        ):
+            result = compile_aoti_regions(model, (x,))
+
+        compile_mock.assert_called_once()
+        lower_mock.assert_called_once()
+        self.assertEqual(len(received_programs), 1)
+        self.assertEqual(received_programs[0].module()(x), fast(x))
+        self.assertIsInstance(result, torch.jit.RecursiveScriptModule)
+        self.assertEqual(result.fast(x), x * 5 - 2)
+
+        alternate = torch.tensor([-1.0, -2.0])
+        self.assertEqual(result(x), x * 5 + 1)
+        self.assertEqual(result(alternate), alternate - 1)
+        self.assertIs(model.fast, original_fast)
+        self.assertEqual(model(x), x * 2 + 4)
+
+        buffer = io.BytesIO()
+        torch.jit.save(result, buffer)
+        buffer.seek(0)
+        loaded = torch.jit.load(buffer)
+        self.assertEqual(loaded(x), x * 5 + 1)
+        self.assertEqual(loaded(alternate), alternate - 1)
+
     def test_scripts_parent_when_there_are_no_aoti_regions(self) -> None:
         class Model(torch.nn.Module):
             def __init__(self) -> None:
