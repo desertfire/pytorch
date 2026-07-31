@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Hybrid TorchScript and AOTInductor Regions - Design</title>
+  <style>
+    :root {
+      --canvas: #f5f6f2;
+      --paper: #ffffff;
+      --ink: #202421;
+      --muted: #606861;
+      --line: #d9ddd7;
+      --line-strong: #b9c1b9;
+      --forest: #145f4a;
+      --forest-soft: #e4f1eb;
+      --mustard: #9a6812;
+      --mustard-soft: #f7eedb;
+      --coral: #a64536;
+      --coral-soft: #f8e7e3;
+      --code: #1f2622;
+      --code-ink: #ecf4ee;
+      --shadow: 0 1px 2px rgba(24, 32, 27, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 24px;
+    }
+
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.58;
+      letter-spacing: 0;
+    }
+
+    a {
+      color: var(--forest);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      color: #0b4434;
+    }
+
+    button {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    .page-shell {
+      display: grid;
+      grid-template-columns: 268px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      border-right: 1px solid var(--line);
+      background: #eef0eb;
+      padding: 30px 24px 24px;
+    }
+
+    .sidebar-brand {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 760;
+      text-decoration: none;
+    }
+
+    .sidebar-kicker {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toc-label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .toc {
+      display: grid;
+      gap: 2px;
+    }
+
+    .toc a {
+      border-left: 2px solid transparent;
+      padding: 7px 9px;
+      color: #495149;
+      font-size: 13px;
+      line-height: 1.25;
+      text-decoration: none;
+    }
+
+    .toc a:hover,
+    .toc a.active {
+      border-left-color: var(--forest);
+      background: rgba(255, 255, 255, 0.62);
+      color: var(--forest);
+    }
+
+    .sidebar-actions {
+      margin-top: 26px;
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+
+    .print-button {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      background: var(--paper);
+      color: var(--ink);
+      cursor: pointer;
+      padding: 8px 10px;
+      text-align: left;
+    }
+
+    .print-button:hover {
+      border-color: var(--forest);
+      color: var(--forest);
+    }
+
+    main {
+      min-width: 0;
+      padding: 40px 6vw 80px;
+    }
+
+    .document {
+      width: min(100%, 1040px);
+      margin: 0 auto;
+    }
+
+    .document-header {
+      border-bottom: 1px solid var(--line-strong);
+      padding-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 9px;
+      color: var(--forest);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    h1 {
+      max-width: 850px;
+      margin: 0;
+      font-size: 38px;
+      line-height: 1.12;
+      font-weight: 780;
+    }
+
+    .subtitle {
+      max-width: 800px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.5;
+    }
+
+    .metadata {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px 18px;
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metadata strong {
+      color: var(--ink);
+      font-weight: 680;
+    }
+
+    section {
+      border-bottom: 1px solid var(--line);
+      padding: 42px 0;
+    }
+
+    section:last-of-type {
+      border-bottom: 0;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: 25px;
+      line-height: 1.24;
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    p {
+      max-width: 850px;
+      margin: 10px 0;
+    }
+
+    ul,
+    ol {
+      max-width: 850px;
+      padding-left: 23px;
+    }
+
+    li + li {
+      margin-top: 7px;
+    }
+
+    code {
+      border-radius: 3px;
+      background: #e9ece7;
+      padding: 1px 4px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.9em;
+    }
+
+    pre {
+      max-width: 100%;
+      overflow-x: auto;
+      border: 1px solid #303a34;
+      border-radius: 6px;
+      background: var(--code);
+      color: var(--code-ink);
+      padding: 18px 20px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      tab-size: 2;
+    }
+
+    pre code {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    .callout {
+      margin: 20px 0;
+      border-left: 4px solid var(--forest);
+      background: var(--forest-soft);
+      padding: 15px 18px;
+    }
+
+    .callout.warning {
+      border-left-color: var(--mustard);
+      background: var(--mustard-soft);
+    }
+
+    .callout.risk {
+      border-left-color: var(--coral);
+      background: var(--coral-soft);
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .decision-grid,
+    .goal-grid,
+    .phase-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+
+    .decision,
+    .goal,
+    .phase {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    .decision dt {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .decision dd {
+      margin: 4px 0 0;
+      font-weight: 650;
+    }
+
+    .goal h3,
+    .phase h3 {
+      margin: 0 0 7px;
+      font-size: 15px;
+    }
+
+    .goal p,
+    .phase p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .goal.negative {
+      border-top: 3px solid var(--coral);
+    }
+
+    .goal.positive {
+      border-top: 3px solid var(--forest);
+    }
+
+    .diagram {
+      margin: 24px 0;
+      border-top: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+      padding: 24px 0;
+    }
+
+    .diagram-title {
+      margin: 0 0 15px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: minmax(155px, 1fr) 36px minmax(155px, 1fr) 36px minmax(155px, 1fr);
+      align-items: stretch;
+      gap: 7px;
+    }
+
+    .flow-node {
+      min-height: 118px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: var(--paper);
+      padding: 15px;
+    }
+
+    .flow-node.primary {
+      border-top: 4px solid var(--forest);
+    }
+
+    .flow-node.bridge {
+      border-top: 4px solid var(--mustard);
+    }
+
+    .flow-node.runtime {
+      border-top: 4px solid var(--coral);
+    }
+
+    .flow-node strong {
+      display: block;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .flow-node span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .flow-arrow {
+      display: grid;
+      place-items: center;
+      color: var(--forest);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 23px;
+      font-weight: 760;
+    }
+
+    .sequence {
+      display: grid;
+      gap: 10px;
+      counter-reset: sequence;
+    }
+
+    .sequence-step {
+      display: grid;
+      grid-template-columns: 36px 180px minmax(0, 1fr);
+      align-items: start;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 0 14px;
+      counter-increment: sequence;
+    }
+
+    .sequence-step:last-child {
+      border-bottom: 0;
+    }
+
+    .sequence-step::before {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--forest);
+      color: white;
+      content: counter(sequence);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .sequence-step strong {
+      padding-top: 3px;
+    }
+
+    .sequence-step p {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .runtime-branch {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
+      margin: 22px 0;
+    }
+
+    .runtime-path {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      padding: 17px;
+    }
+
+    .runtime-path strong {
+      display: block;
+      margin-bottom: 7px;
+    }
+
+    .runtime-path p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .branch-label {
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin: 18px 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 13px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef0eb;
+      color: #414841;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .status {
+      display: inline-block;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 720;
+    }
+
+    .status.yes {
+      background: var(--forest-soft);
+      color: var(--forest);
+    }
+
+    .status.no {
+      background: var(--coral-soft);
+      color: var(--coral);
+    }
+
+    .status.later {
+      background: var(--mustard-soft);
+      color: var(--mustard);
+    }
+
+    .source-list {
+      display: grid;
+      gap: 9px;
+      max-width: 850px;
+      margin-top: 18px;
+    }
+
+    .source-list a {
+      display: block;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+      text-decoration: none;
+    }
+
+    footer {
+      padding-top: 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .page-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 20px;
+      }
+
+      .sidebar-kicker,
+      .toc-label,
+      .sidebar-actions {
+        display: none;
+      }
+
+      .toc {
+        display: flex;
+        gap: 5px;
+        overflow-x: auto;
+        padding-bottom: 3px;
+      }
+
+      .toc a {
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.6);
+        padding: 6px 9px;
+      }
+
+      .toc a:hover,
+      .toc a.active {
+        border-color: var(--forest);
+      }
+
+      main {
+        padding: 30px 22px 60px;
+      }
+    }
+
+    @media (max-width: 680px) {
+      h1 {
+        font-size: 30px;
+      }
+
+      .subtitle {
+        font-size: 16px;
+      }
+
+      .decision-grid,
+      .goal-grid,
+      .phase-grid,
+      .runtime-branch {
+        grid-template-columns: 1fr;
+      }
+
+      .branch-label {
+        min-height: 24px;
+      }
+
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-arrow {
+        min-height: 24px;
+        transform: rotate(90deg);
+      }
+
+      .sequence-step {
+        grid-template-columns: 34px minmax(0, 1fr);
+      }
+
+      .sequence-step p {
+        grid-column: 2;
+      }
+
+      section {
+        padding: 34px 0;
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+        font-size: 11pt;
+      }
+
+      .page-shell {
+        display: block;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      main {
+        padding: 0;
+      }
+
+      .document {
+        width: 100%;
+      }
+
+      section {
+        break-inside: avoid-page;
+      }
+
+      pre,
+      .decision,
+      .goal,
+      .phase,
+      .flow-node,
+      .runtime-path {
+        box-shadow: none;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <aside class="sidebar" aria-label="Document navigation">
+      <a class="sidebar-brand" href="#top">Hybrid execution design</a>
+      <p class="sidebar-kicker">TorchScript orchestration with AOTInductor regions</p>
+      <p class="toc-label">Contents</p>
+      <nav class="toc">
+        <a href="#summary">Summary</a>
+        <a href="#goals">Goals</a>
+        <a href="#experience">User experience</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#compile-flow">Compile flow</a>
+        <a href="#runtime">Runtime</a>
+        <a href="#artifact">Artifact</a>
+        <a href="#contracts">Contracts</a>
+        <a href="#functions">Functions</a>
+        <a href="#errors">Errors</a>
+        <a href="#alternatives">Alternatives</a>
+        <a href="#rollout">Rollout</a>
+        <a href="#testing">Testing</a>
+        <a href="#questions">Open questions</a>
+      </nav>
+      <div class="sidebar-actions">
+        <button class="print-button" type="button" onclick="window.print()">Print document</button>
+      </div>
+    </aside>
+
+    <main id="top">
+      <article class="document">
+        <header class="document-header">
+          <p class="eyebrow">Technical design proposal</p>
+          <h1>Hybrid TorchScript orchestration with AOTInductor regions</h1>
+          <p class="subtitle">
+            Preserve TorchScript's data-dependent control flow and portable execution model while delegating explicitly annotated compute regions to <code>torch.export</code> and AOTInductor.
+          </p>
+          <div class="metadata">
+            <span><strong>Status:</strong> Proposed</span>
+            <span><strong>Primary decision:</strong> JIT backend delegation</span>
+            <span><strong>Initial scope:</strong> Inference</span>
+            <span><strong>Audience:</strong> Compiler and runtime engineers</span>
+            <span><strong>Updated:</strong> July 14, 2026</span>
+          </div>
+        </header>
+
+        <section id="summary">
+          <h2>Executive summary</h2>
+          <p>
+            The system compiles the outer model with TorchScript and replaces marked submodules with typed, opaque backend modules. Each marked body is independently captured by <code>torch.export</code>, compiled by AOTInductor, and invoked through the existing TorchScript backend interface.
+          </p>
+          <div class="callout">
+            <strong>Recommendation</strong>
+            Use a registered <code>PyTorchBackendInterface</code> implementation as the runtime boundary. Compile annotated regions before recursive scripting, generate schema-only TorchScript stubs, lower those stubs to the AOTI backend, and then script the outer model.
+          </div>
+          <div class="decision-grid">
+            <dl class="decision">
+              <dt>Outer representation</dt>
+              <dd><code>RecursiveScriptModule</code></dd>
+            </dl>
+            <dl class="decision">
+              <dt>Region capture</dt>
+              <dd><code>torch.export.export(strict=True)</code></dd>
+            </dl>
+            <dl class="decision">
+              <dt>Region code generation</dt>
+              <dd>AOTInductor <code>.pt2</code> package</dd>
+            </dl>
+            <dl class="decision">
+              <dt>Runtime boundary</dt>
+              <dd>Typed JIT backend wrapper</dd>
+            </dl>
+            <dl class="decision">
+              <dt>Artifact ownership</dt>
+              <dd>Embedded package payload by default</dd>
+            </dl>
+            <dl class="decision">
+              <dt>Failure policy</dt>
+              <dd>Fail closed on contract mismatch</dd>
+            </dl>
+          </div>
+          <p>
+            This keeps control flow such as <code>if</code>, loops, recursion supported by TorchScript, and method dispatch in the outer graph. AOTInductor sees only coarse compute regions and can perform fusion, scheduling, memory planning, and target-specific kernel generation within each region.
+          </p>
+        </section>
+
+        <section id="goals">
+          <h2>Goals and non-goals</h2>
+          <div class="goal-grid">
+            <div class="goal positive">
+              <h3>Preserve outer control flow</h3>
+              <p>Tensor-dependent TorchScript branches and loops may select or repeatedly invoke compiled regions.</p>
+            </div>
+            <div class="goal positive">
+              <h3>Use the export stack locally</h3>
+              <p>Annotated regions receive export's normalized graph and AOTInductor's target-specific optimizations.</p>
+            </div>
+            <div class="goal positive">
+              <h3>Retain typed boundaries</h3>
+              <p>Outer TorchScript sees the original method signature rather than an untyped global callback.</p>
+            </div>
+            <div class="goal positive">
+              <h3>Support C++ execution</h3>
+              <p>The final artifact loads without Python and reconstructs its AOTI runners during deserialization.</p>
+            </div>
+            <div class="goal negative">
+              <h3>No cross-boundary fusion</h3>
+              <p>TorchScript and Inductor optimize their own sides of the boundary; the boundary remains opaque.</p>
+            </div>
+            <div class="goal negative">
+              <h3>No training in version one</h3>
+              <p>Parameters are frozen into AOTI artifacts and autograd does not cross the delegated call.</p>
+            </div>
+            <div class="goal negative">
+              <h3>No automatic region discovery</h3>
+              <p>Programmers choose regions explicitly. Automatic partitioning can be evaluated after the ABI stabilizes.</p>
+            </div>
+            <div class="goal negative">
+              <h3>No implicit recompilation</h3>
+              <p>A deployed region either accepts its input contract or returns a precise runtime error.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="experience">
+          <h2>Proposed user experience</h2>
+          <p>The annotation records configuration only. Compilation remains explicit because export requires representative inputs and a shape contract.</p>
+          <pre><code>from torch.export import Dim
+from torch.hybrid import aoti_region, compile
+
+class FastBlock(torch.nn.Module):
+    @aoti_region(
+        dynamic_shapes={
+            "x": {0: Dim("batch", min=1, max=1024)},
+        },
+        options={"max_autotune": True},
+    )
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        return self.proj(torch.relu(x))
+
+class Model(torch.nn.Module):
+    def __init__(self) -&gt; None:
+        super().__init__()
+        self.fast = FastBlock()
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        if x.sum() &gt; 0:
+            return self.fast(x)
+        return x - 1
+
+model = Model().eval()
+compiled = compile(
+    model,
+    calibration_inputs=[
+        ((torch.randn(8, 10, device="cuda"),), {}),
+    ],
+    target="cuda",
+)
+compiled.save("model.pt")</code></pre>
+          <h3>Annotation forms</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Form</th><th>Example</th><th>Version</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Method annotation</td>
+                  <td><code>@aoti_region</code> on <code>nn.Module.forward</code></td>
+                  <td><span class="status yes">V1</span></td>
+                </tr>
+                <tr>
+                  <td>Class annotation</td>
+                  <td><code>@aoti_region</code> on an <code>nn.Module</code> class</td>
+                  <td><span class="status yes">V1</span></td>
+                </tr>
+                <tr>
+                  <td>Bound function</td>
+                  <td><code>self.fast = torch.hybrid.bind(fast_fn)</code></td>
+                  <td><span class="status yes">V1</span></td>
+                </tr>
+                <tr>
+                  <td>Direct global function call</td>
+                  <td><code>fast_fn(x)</code> from scripted code</td>
+                  <td><span class="status later">V2</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Calibration hooks record concrete region inputs. If a region is not reached, compilation fails with its qualified name and asks for <code>region_inputs={...}</code>. Silent omission would produce an artifact whose behavior depends on calibration coverage.
+          </p>
+        </section>
+
+        <section id="architecture">
+          <h2>System architecture</h2>
+          <div class="diagram" role="img" aria-label="TorchScript calls a typed backend wrapper, which calls an AOTInductor package loader">
+            <p class="diagram-title">Runtime ownership and call boundary</p>
+            <div class="flow">
+              <div class="flow-node primary">
+                <strong>TorchScript orchestrator</strong>
+                <span>Control flow, module state outside regions, method dispatch, serialization, C++ execution.</span>
+              </div>
+              <div class="flow-arrow" aria-hidden="true">&gt;</div>
+              <div class="flow-node bridge">
+                <strong>Lowered region module</strong>
+                <span>Original typed method schema, boxing adapter, backend handle, contract diagnostics.</span>
+              </div>
+              <div class="flow-arrow" aria-hidden="true">&gt;</div>
+              <div class="flow-node runtime">
+                <strong>AOTI package loader</strong>
+                <span>Compiled wrapper, kernels, frozen weights, runner pool, device and stream integration.</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>Python frontend</h3>
+          <p>
+            The frontend owns decorators, discovery, calibration, export, AOTInductor invocation, schema stub generation, temporary module substitution, correctness checks, and packaging. Annotation metadata must remain inert during normal eager execution.
+          </p>
+
+          <h3>TorchScript backend</h3>
+          <p>
+            Register <code>AOTIRegionBackend : PyTorchBackendInterface</code>. The existing backend contract provides <code>compile(processed, method_compile_spec)</code> and <code>execute(handle, List[Any])</code>. Generated wrapper methods preserve the original schema while adapting calls to that boxed interface.
+          </p>
+
+          <h3>AOTI runtime</h3>
+          <p>
+            Each backend instance owns one or more <code>AOTIModelPackageLoader</code> objects. Its <code>compile</code> method materializes precompiled package bytes and creates runners; it does not invoke Inductor during model load.
+          </p>
+
+          <div class="callout warning">
+            <strong>Why substitute before scripting?</strong>
+            Recursive scripting would otherwise compile the annotated region body. Replacing it with a schema-only lowered stub first means a region needs to satisfy the export contract, not both the export and TorchScript language subsets.
+          </div>
+        </section>
+
+        <section id="compile-flow">
+          <h2>Compile-time flow</h2>
+          <div class="sequence">
+            <div class="sequence-step">
+              <strong>Discover regions</strong>
+              <p>Walk the eager module hierarchy, normalize class and method annotations, assign stable qualified region IDs, and reject nested or conflicting annotations.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Validate state</strong>
+              <p>Require evaluation mode, identify parameters and buffers owned by each region, and reject shared state, hooks, unsupported mutation, or direct parent access to region internals.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Capture examples</strong>
+              <p>Run top-level calibration cases with temporary hooks and record region arguments, keyword binding, tensor metadata, autocast state, and device.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Export each region</strong>
+              <p>Call <code>torch.export.export(..., strict=True)</code>, apply the annotation's dynamic shape contract, and inspect the graph signature for mutation and aliasing.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Compile and verify</strong>
+              <p>Run <code>aoti_compile_and_package</code> into an in-memory package, load it, and compare eager and AOTI outputs on all captured examples.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Build typed stubs</strong>
+              <p>Generate a body-less ScriptModule from the Python annotations or explicit schema, attach the package payload and manifest, and lower it through the AOTI JIT backend.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Script the outer model</strong>
+              <p>Temporarily substitute lowered regions into the eager hierarchy, call <code>torch.jit.script</code>, and restore the user's model in a <code>finally</code> block.</p>
+            </div>
+            <div class="sequence-step">
+              <strong>Validate end to end</strong>
+              <p>Compare the final hybrid ScriptModule with eager execution across calibration cases, then attach provenance and build metadata.</p>
+            </div>
+          </div>
+
+          <div class="diagram" role="img" aria-label="Compile pipeline from annotations to a hybrid ScriptModule">
+            <p class="diagram-title">Artifact construction</p>
+            <div class="flow">
+              <div class="flow-node primary">
+                <strong>Annotated eager model</strong>
+                <span>Python bodies, state, calibration inputs, region shape specifications.</span>
+              </div>
+              <div class="flow-arrow" aria-hidden="true">&gt;</div>
+              <div class="flow-node bridge">
+                <strong>Region compiler</strong>
+                <span>ExportedProgram, AOTInductor package, schema stub, lowered backend module.</span>
+              </div>
+              <div class="flow-arrow" aria-hidden="true">&gt;</div>
+              <div class="flow-node runtime">
+                <strong>Hybrid ScriptModule</strong>
+                <span>TorchScript graphs plus embedded AOTI payloads and region manifests.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="runtime">
+          <h2>Runtime behavior</h2>
+          <p>Outer execution remains ordinary TorchScript. A branch or loop decides whether and how often the lowered submodule is called.</p>
+          <pre><code>%pred = aten::gt(%sum, %zero)
+%result = prim::If(%pred)
+  block0:
+    %fast = prim::GetAttr[name="fast"](%self)
+    %y = prim::CallMethod[name="forward"](%fast, %x)
+    -&gt; (%y)
+  block1:
+    %y = aten::sub(%x, %one, %alpha)
+    -&gt; (%y)</code></pre>
+
+          <div class="runtime-branch">
+            <div class="runtime-path">
+              <strong>TorchScript path</strong>
+              <p>Evaluates dynamic control flow and invokes ordinary scripted operators and modules.</p>
+            </div>
+            <div class="branch-label">calls</div>
+            <div class="runtime-path">
+              <strong>AOTI region path</strong>
+              <p>Boxes typed inputs, validates the contract, runs compiled kernels, and reconstructs typed outputs.</p>
+            </div>
+          </div>
+
+          <h3>Backend method behavior</h3>
+          <ol>
+            <li>Resolve the method handle to a loaded package runner.</li>
+            <li>Flatten supported TorchScript values according to the stored ABI manifest.</li>
+            <li>Validate device, dtype, rank, strides, static dimensions, and symbolic range constraints.</li>
+            <li>Invoke the runner on the current device stream without an implicit synchronization.</li>
+            <li>Rebuild the declared return structure and return it through <code>List[Any]</code>.</li>
+          </ol>
+
+          <p>
+            The runtime must use a runner pool or the AOTI model container's concurrency support rather than placing a global lock around every region. Runner count is a compile option and must be included in the manifest.
+          </p>
+        </section>
+
+        <section id="artifact">
+          <h2>Serialization and artifact layout</h2>
+          <p>
+            The default artifact remains a TorchScript archive. Every lowered module stores its AOTI package as a CPU <code>uint8</code> tensor in serialized backend state. Live runner handles are excluded and reconstructed during <code>__setstate__</code>.
+          </p>
+          <pre><code>model.pt
+  code/                         TorchScript methods and classes
+  data/                         TorchScript tensors and constants
+  hybrid_manifest.json          Global region index and compatibility data
+  aoti_payloads/                Logical payloads stored through backend state
+    encoder.fast/&lt;hash&gt;.pt2     AOTInductor package bytes
+    decoder.mlp/&lt;hash&gt;.pt2</code></pre>
+          <p>
+            At load, the backend hashes each payload, writes it atomically into a content-addressed cache, validates compatibility metadata, and constructs <code>AOTIModelPackageLoader</code>. The cache prevents repeated extraction when many model instances share an artifact.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Manifest field</th><th>Purpose</th></tr></thead>
+              <tbody>
+                <tr><td>Region ID and FQN</td><td>Error attribution, provenance, and stable lookup.</td></tr>
+                <tr><td>Input/output ABI</td><td>Flattening plan and typed reconstruction.</td></tr>
+                <tr><td>Shape constraints</td><td>Runtime validation for static and symbolic dimensions.</td></tr>
+                <tr><td>Target metadata</td><td>Device type, architecture, compiler flags, and optional CPU capability.</td></tr>
+                <tr><td>Version metadata</td><td>PyTorch version, AOTI ABI, operator set, and artifact schema version.</td></tr>
+                <tr><td>Content hash</td><td>Cache identity and corruption detection.</td></tr>
+                <tr><td>Provenance</td><td>Source FQN, export graph hash, and debug artifact references.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout risk">
+            <strong>Native-code trust boundary</strong>
+            An AOTI payload contains native code. Hybrid artifacts must be treated as executable software, validated before loading, and never accepted from an untrusted source.
+          </div>
+        </section>
+
+        <section id="contracts">
+          <h2>Region contract</h2>
+          <p>Version one should use a deliberately narrow contract. Expanding it later is easier than preserving accidental semantics.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Capability</th><th>V1 policy</th><th>Reason</th></tr></thead>
+              <tbody>
+                <tr><td>Execution mode</td><td><span class="status yes">Inference only</span></td><td>AOTI region state is frozen and autograd does not cross the boundary.</td></tr>
+                <tr><td>Inputs</td><td>Positional tensors</td><td>Maps directly to the AOTI runner ABI.</td></tr>
+                <tr><td>Outputs</td><td>Tensor or flat tensor tuple</td><td>Allows deterministic typed reconstruction.</td></tr>
+                <tr><td>Dynamic dimensions</td><td>Explicit annotation</td><td>Deployment cannot ask Dynamo to recompile.</td></tr>
+                <tr><td>Input mutation</td><td><span class="status no">Rejected</span></td><td>Prevents unsound alias behavior across the opaque call.</td></tr>
+                <tr><td>Output aliases input</td><td><span class="status no">Rejected</span></td><td>Prevents TorchScript alias analysis from making invalid assumptions.</td></tr>
+                <tr><td>Shared parameters</td><td><span class="status no">Rejected</span></td><td>Compiled constants would break identity and update semantics.</td></tr>
+                <tr><td>Forward hooks</td><td><span class="status no">Rejected</span></td><td>Substitution changes hook ownership and ordering.</td></tr>
+                <tr><td>Direct attribute access</td><td><span class="status no">Rejected</span></td><td>The outer model must treat a region as an opaque callable.</td></tr>
+                <tr><td>Multiple target variants</td><td><span class="status later">Later</span></td><td>Requires target selection and larger artifacts.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Control flow</h3>
+          <p>
+            TorchScript may place arbitrary supported control flow around the region. Inside the exported region, ordinary Python data-dependent branches remain subject to export rules and should use structured operators such as <code>torch.cond</code> or <code>torch.while_loop</code> when dynamic semantics must be preserved.
+          </p>
+
+          <h3>State and device movement</h3>
+          <p>
+            Region parameters and buffers are frozen into the AOTI package. Calling <code>.to()</code>, loading a new state dict, or switching training mode after hybrid compilation is unsupported. The compiler should remove delegated parameters from the visible outer ScriptModule state and preserve an FQN-to-constant mapping for diagnostics.
+          </p>
+
+          <h3>Boundary granularity</h3>
+          <p>
+            Every call pays method dispatch, boxing, validation, and AOTI runner overhead. There is no fusion across the boundary. Documentation and tooling should recommend whole blocks such as attention, convolution stacks, or MLPs rather than individual pointwise operators.
+          </p>
+        </section>
+
+        <section id="functions">
+          <h2>Free-function support</h2>
+          <h3>Version one: bind as a submodule</h3>
+          <pre><code>@aoti_region(dynamic_shapes={"x": {0: batch}})
+def fast_fn(x: torch.Tensor) -&gt; torch.Tensor:
+    return torch.relu(x @ weight)
+
+class Model(torch.nn.Module):
+    def __init__(self) -&gt; None:
+        super().__init__()
+        self.fast_fn = torch.hybrid.bind(fast_fn)
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        return self.fast_fn(x)</code></pre>
+          <p>
+            <code>bind</code> creates a synthetic <code>nn.Module</code> whose <code>forward</code> has the function's annotated signature. This reuses the same ownership, serialization, and lowering path as an ordinary marked submodule.
+          </p>
+
+          <h3>Version two: direct calls</h3>
+          <p>
+            Direct <code>fast_fn(x)</code> calls require a whole-program TorchScript transformation. The compiler must find annotated <code>prim::CallFunction</code> nodes, lift a lowered module into the nearest owning ScriptModule, and rewrite calls to <code>prim::CallMethod</code>. Calls inside helper functions require inlining or threading a hidden region context through the call graph.
+          </p>
+          <div class="callout warning">
+            <strong>Avoid a process-global runner registry</strong>
+            A generic operator keyed only by a string is simpler, but creates model lifetime, namespace collision, unload, concurrency, and multi-tenant isolation problems. Region runners should remain owned by serialized module state.
+          </div>
+        </section>
+
+        <section id="errors">
+          <h2>Validation, errors, and fallback</h2>
+          <h3>Compile-time validation</h3>
+          <ul>
+            <li>Every annotated region must be reached by calibration or receive explicit region examples.</li>
+            <li>Python annotations or an explicit schema must fully define the TorchScript boundary.</li>
+            <li>All observed calls must fit one export shape contract or compilation fails with the conflicting examples.</li>
+            <li>Export graph signatures must contain no unsupported mutations or aliases.</li>
+            <li>Eager, exported, AOTI, and final hybrid outputs must agree on supplied validation cases.</li>
+          </ul>
+
+          <h3>Runtime errors</h3>
+          <p>Errors should include the region FQN, artifact hash, expected contract, actual tensor metadata, and the stage that failed. For example:</p>
+          <pre><code>HybridRegionError: encoder.fast rejected input 0
+  expected: float16 cuda rank=3 shape=[1..1024, 128, 64]
+  actual:   float16 cuda rank=3 shape=[2048, 128, 64]
+  artifact: aoti:8d9f...c21
+  action: widen the annotated Dim range and rebuild the artifact</code></pre>
+
+          <h3>Fallback policy</h3>
+          <p>
+            The default is <strong>error</strong>. An optional <code>fallback="script"</code> mode may retain a scripted copy of the original region and dispatch to it when a cheap preflight guard fails. This is only available when the original body is also TorchScript-compatible and immutable; it increases artifact size and must not catch execution failures after kernels have launched.
+          </p>
+        </section>
+
+        <section id="alternatives">
+          <h2>Alternatives considered</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Alternative</th><th>Assessment</th><th>Decision</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Call a Python AOTI wrapper from <code>@torch.jit.ignore</code></td>
+                  <td>Breaks C++ portability and prevents normal TorchScript serialization.</td>
+                  <td><span class="status no">Reject</span></td>
+                </tr>
+                <tr>
+                  <td>Use <code>aoti_call_delegate</code> directly</td>
+                  <td>Designed for ExportedProgram graphs and fake propagation; it carries FX-specific objects that are not a natural TorchScript ABI.</td>
+                  <td><span class="status no">Reject</span></td>
+                </tr>
+                <tr>
+                  <td>Register one custom operator per region</td>
+                  <td>Works but requires preloading generated libraries and creates global registration and namespace ownership problems.</td>
+                  <td><span class="status no">Reject</span></td>
+                </tr>
+                <tr>
+                  <td>Custom class containing an AOTI runner</td>
+                  <td>Valid low-level prototype, but a path-only pickle is not a self-contained artifact and typed method adaptation must be rebuilt.</td>
+                  <td><span class="status later">Supporting mechanism</span></td>
+                </tr>
+                <tr>
+                  <td>JIT backend delegation</td>
+                  <td>Already provides schema-preserving wrappers, backend-owned handles, selective replacement machinery, and deserialization hooks.</td>
+                  <td><span class="status yes">Choose</span></td>
+                </tr>
+                <tr>
+                  <td>Convert the entire model to export</td>
+                  <td>Loses the requested TorchScript control-flow envelope and changes the programming model.</td>
+                  <td><span class="status no">Reject for this goal</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout risk">
+            <strong>Strategic risk</strong>
+            TorchScript is deprecated. The implementation should minimize new frontend and IR surface area, build on the existing backend extension point, and isolate the region compiler so a future orchestrator such as structured export control flow or NativeRT can reuse the AOTI packaging and ABI components.
+          </div>
+        </section>
+
+        <section id="rollout">
+          <h2>Implementation plan</h2>
+          <div class="phase-grid">
+            <div class="phase">
+              <h3>Phase 1: Backend proof</h3>
+              <p>Register the AOTI JIT backend, embed one package payload, load it after TorchScript save/load, and execute a flat tensor ABI on CPU and CUDA.</p>
+            </div>
+            <div class="phase">
+              <h3>Phase 2: Annotated submodules</h3>
+              <p>Add decorators, calibration capture, strict export, typed stubs, substitution before scripting, validation, and qualified diagnostics.</p>
+            </div>
+            <div class="phase">
+              <h3>Phase 3: Production artifact</h3>
+              <p>Add content-addressed extraction, compatibility manifests, provenance, runner pooling, package integrity checks, and C++ loading tests.</p>
+            </div>
+            <div class="phase">
+              <h3>Phase 4: ABI expansion</h3>
+              <p>Support nested tensor containers, optional tensors, multiple methods, target variants, and an opt-in scripted fallback.</p>
+            </div>
+            <div class="phase">
+              <h3>Phase 5: Direct functions</h3>
+              <p>Implement function lifting and TorchScript callsite rewriting only after module ownership and serialization semantics are stable.</p>
+            </div>
+            <div class="phase">
+              <h3>Phase 6: Migration path</h3>
+              <p>Evaluate reusing the region ABI from structured export control flow or NativeRT to reduce long-term dependency on TorchScript internals.</p>
+            </div>
+          </div>
+
+          <h3>Likely code ownership</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Area</th><th>Responsibility</th></tr></thead>
+              <tbody>
+                <tr><td><code>torch/_hybrid/</code></td><td>Decorator, discovery, calibration, export/AOTI orchestration, schema generation, and validation.</td></tr>
+                <tr><td><code>torch/csrc/jit/backends/aoti/</code></td><td>Backend registration, package materialization, method handles, boxing adapter, and diagnostics.</td></tr>
+                <tr><td><code>torch/csrc/inductor/aoti_package/</code></td><td>Reusable loader hooks needed for embedded or memory-backed payloads.</td></tr>
+                <tr><td><code>test/jit/</code></td><td>TorchScript control flow, substitution, save/load, schemas, and error behavior.</td></tr>
+                <tr><td><code>test/inductor/</code></td><td>AOTI correctness, dynamic shapes, target coverage, concurrency, and provenance.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="testing">
+          <h2>Test strategy</h2>
+          <ul>
+            <li><strong>Control flow:</strong> tensor-dependent <code>if</code>, loops, nested branches, and multiple invocations of one region.</li>
+            <li><strong>Correctness:</strong> eager versus export versus AOTI versus final hybrid results over static and dynamic shapes.</li>
+            <li><strong>Serialization:</strong> Python and C++ save/load in clean processes with no compile-time filesystem paths available.</li>
+            <li><strong>Contracts:</strong> wrong dtype, device, rank, stride, static dimension, and dynamic range produce stable errors.</li>
+            <li><strong>State:</strong> shared parameters, hooks, mutation, aliases, training mode, and post-compile state updates are rejected.</li>
+            <li><strong>Concurrency:</strong> multiple threads, multiple model instances, CUDA streams, runner pools, and artifact cache races.</li>
+            <li><strong>Compatibility:</strong> missing backend registration, incompatible AOTI ABI, target mismatch, and corrupt package payload.</li>
+            <li><strong>Performance:</strong> quantify boundary overhead and publish minimum recommended region granularity.</li>
+            <li><strong>Diagnostics:</strong> region FQNs and source provenance survive all compilation and serialization stages.</li>
+          </ul>
+          <p>
+            CI should include at least one C++ integration test that loads the final TorchScript artifact, takes both sides of a scripted branch, and executes an AOTI region without importing Python.
+          </p>
+        </section>
+
+        <section id="questions">
+          <h2>Open questions</h2>
+          <ol>
+            <li>Should package bytes remain embedded in TorchScript state, or should the public artifact become a higher-level archive containing both TorchScript and AOTI payloads?</li>
+            <li>Should the first public ABI allow nested tensor pytrees, or begin with flat tensors and add containers after serialization is stable?</li>
+            <li>What exact compatibility promise can AOTI artifacts make across PyTorch releases and target driver versions?</li>
+            <li>Should runtime input checks always be enabled for hybrid regions, independent of the global AOTI runtime-check setting?</li>
+            <li>Is an optional scripted fallback worth its artifact size and state duplication, or should all contract failures remain fatal?</li>
+            <li>Can the AOTI package loader accept a memory-backed package directly to avoid materializing nested package bytes?</li>
+            <li>What is the long-term outer control-flow runtime once TorchScript maintenance no longer justifies new integrations?</li>
+          </ol>
+
+          <h3>Relevant implementation anchors</h3>
+          <div class="source-list">
+            <a href="../torch/csrc/jit/backends/backend.h">JIT backend interface: compile and execute contracts</a>
+            <a href="../torch/csrc/jit/backends/backend_detail.cpp">Generated lowered modules and save/load reconstruction</a>
+            <a href="../torch/csrc/jit/backends/backend_init.cpp">Selective submodule replacement and type remapping</a>
+            <a href="../test/cpp/aoti_inference/aoti_custom_class.cpp">Existing AOTI runner custom-class prototype</a>
+            <a href="../torch/_inductor/__init__.py">AOTInductor compilation and package APIs</a>
+            <a href="https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_aot_inductor.html">Official AOTInductor documentation</a>
+            <a href="https://docs.pytorch.org/docs/main/higher_order_ops/index.html">Structured control-flow operators</a>
+          </div>
+        </section>
+
+        <footer>
+          This document proposes an experimental integration. API names are illustrative and do not exist in the current PyTorch public API.
+        </footer>
+      </article>
+    </main>
+  </div>
+
+  <script>
+    const links = Array.from(document.querySelectorAll(".toc a"));
+    const targets = links
+      .map((link) => document.querySelector(link.getAttribute("href")))
+      .filter(Boolean);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (!visible) return;
+        links.forEach((link) => {
+          link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`);
+        });
+      },
+      { rootMargin: "-10% 0px -75% 0px", threshold: [0, 0.1, 0.5] }
+    );
+
+    targets.forEach((target) => observer.observe(target));
+  </script>
+</body>
+</html>
